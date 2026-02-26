@@ -158,7 +158,7 @@ function formatBot(
     name: bot.name,
     slug: bot.slug,
     status: (bot.status ?? "active") as "active" | "paused" | "deleted",
-    modelId: bot.modelId ?? "gpt-4o",
+    modelId: bot.modelId ?? "anthropic/claude-sonnet-4-6",
     systemPrompt: bot.systemPrompt,
     createdAt: bot.createdAt,
     updatedAt: bot.updatedAt,
@@ -166,25 +166,22 @@ function formatBot(
 }
 
 async function findOrCreateDefaultPool(): Promise<string> {
-  const existing = db
+  const [existing] = await db
     .select()
     .from(gatewayPools)
-    .where(eq(gatewayPools.poolName, "default"))
-    .get();
+    .where(eq(gatewayPools.poolName, "default"));
 
   if (existing) {
     return existing.id;
   }
 
   const poolId = createId();
-  db.insert(gatewayPools)
-    .values({
-      id: poolId,
-      poolName: "default",
-      poolType: "shared",
-      status: "active",
-    })
-    .run();
+  await db.insert(gatewayPools).values({
+    id: poolId,
+    poolName: "default",
+    poolType: "shared",
+    status: "active",
+  });
 
   return poolId;
 }
@@ -194,11 +191,10 @@ export function registerBotRoutes(app: OpenAPIHono<AppBindings>) {
     const input = c.req.valid("json");
     const userId = c.get("userId");
 
-    const existingBot = db
+    const [existingBot] = await db
       .select()
       .from(bots)
-      .where(and(eq(bots.userId, userId), eq(bots.slug, input.slug)))
-      .get();
+      .where(and(eq(bots.userId, userId), eq(bots.slug, input.slug)));
 
     if (existingBot) {
       return c.json({ message: "Bot slug already exists" }, 409);
@@ -208,30 +204,26 @@ export function registerBotRoutes(app: OpenAPIHono<AppBindings>) {
     const botId = createId();
     const now = new Date().toISOString();
 
-    db.insert(bots)
-      .values({
-        id: botId,
-        userId,
-        name: input.name,
-        slug: input.slug,
-        systemPrompt: input.systemPrompt,
-        modelId: input.modelId,
-        poolId,
-        createdAt: now,
-        updatedAt: now,
-      })
-      .run();
+    await db.insert(bots).values({
+      id: botId,
+      userId,
+      name: input.name,
+      slug: input.slug,
+      systemPrompt: input.systemPrompt,
+      modelId: input.modelId,
+      poolId,
+      createdAt: now,
+      updatedAt: now,
+    });
 
-    db.insert(gatewayAssignments)
-      .values({
-        id: createId(),
-        botId,
-        poolId,
-        assignedAt: now,
-      })
-      .run();
+    await db.insert(gatewayAssignments).values({
+      id: createId(),
+      botId,
+      poolId,
+      assignedAt: now,
+    });
 
-    const bot = db.select().from(bots).where(eq(bots.id, botId)).get();
+    const [bot] = await db.select().from(bots).where(eq(bots.id, botId));
     if (!bot) {
       throw new Error("Failed to create bot");
     }
@@ -241,7 +233,7 @@ export function registerBotRoutes(app: OpenAPIHono<AppBindings>) {
 
   app.openapi(listBotsRoute, async (c) => {
     const userId = c.get("userId");
-    const result = db
+    const result = await db
       .select()
       .from(bots)
       .where(
@@ -249,8 +241,7 @@ export function registerBotRoutes(app: OpenAPIHono<AppBindings>) {
           eq(bots.userId, userId),
           or(eq(bots.status, "active"), eq(bots.status, "paused")),
         ),
-      )
-      .all();
+      );
 
     return c.json({ bots: result.map(formatBot) }, 200);
   });
@@ -259,11 +250,10 @@ export function registerBotRoutes(app: OpenAPIHono<AppBindings>) {
     const { botId } = c.req.valid("param");
     const userId = c.get("userId");
 
-    const bot = db
+    const [bot] = await db
       .select()
       .from(bots)
-      .where(and(eq(bots.id, botId), eq(bots.userId, userId)))
-      .get();
+      .where(and(eq(bots.id, botId), eq(bots.userId, userId)));
 
     if (!bot) {
       return c.json({ message: `Bot ${botId} not found` }, 404);
@@ -277,18 +267,18 @@ export function registerBotRoutes(app: OpenAPIHono<AppBindings>) {
     const userId = c.get("userId");
     const input = c.req.valid("json");
 
-    const bot = db
+    const [bot] = await db
       .select()
       .from(bots)
-      .where(and(eq(bots.id, botId), eq(bots.userId, userId)))
-      .get();
+      .where(and(eq(bots.id, botId), eq(bots.userId, userId)));
 
     if (!bot) {
       return c.json({ message: `Bot ${botId} not found` }, 404);
     }
 
     const now = new Date().toISOString();
-    db.update(bots)
+    await db
+      .update(bots)
       .set({
         ...(input.name !== undefined && { name: input.name }),
         ...(input.systemPrompt !== undefined && {
@@ -297,10 +287,9 @@ export function registerBotRoutes(app: OpenAPIHono<AppBindings>) {
         ...(input.modelId !== undefined && { modelId: input.modelId }),
         updatedAt: now,
       })
-      .where(eq(bots.id, botId))
-      .run();
+      .where(eq(bots.id, botId));
 
-    const updated = db.select().from(bots).where(eq(bots.id, botId)).get();
+    const [updated] = await db.select().from(bots).where(eq(bots.id, botId));
     if (!updated) {
       throw new Error("Failed to update bot");
     }
@@ -312,24 +301,23 @@ export function registerBotRoutes(app: OpenAPIHono<AppBindings>) {
     const { botId } = c.req.valid("param");
     const userId = c.get("userId");
 
-    const bot = db
+    const [bot] = await db
       .select()
       .from(bots)
-      .where(and(eq(bots.id, botId), eq(bots.userId, userId)))
-      .get();
+      .where(and(eq(bots.id, botId), eq(bots.userId, userId)));
 
     if (!bot) {
       return c.json({ message: `Bot ${botId} not found` }, 404);
     }
 
-    db.delete(gatewayAssignments)
-      .where(eq(gatewayAssignments.botId, botId))
-      .run();
+    await db
+      .delete(gatewayAssignments)
+      .where(eq(gatewayAssignments.botId, botId));
 
-    db.update(bots)
+    await db
+      .update(bots)
       .set({ status: "deleted", updatedAt: new Date().toISOString() })
-      .where(eq(bots.id, botId))
-      .run();
+      .where(eq(bots.id, botId));
 
     return c.json({ success: true }, 200);
   });
@@ -338,22 +326,21 @@ export function registerBotRoutes(app: OpenAPIHono<AppBindings>) {
     const { botId } = c.req.valid("param");
     const userId = c.get("userId");
 
-    const bot = db
+    const [bot] = await db
       .select()
       .from(bots)
-      .where(and(eq(bots.id, botId), eq(bots.userId, userId)))
-      .get();
+      .where(and(eq(bots.id, botId), eq(bots.userId, userId)));
 
     if (!bot) {
       return c.json({ message: `Bot ${botId} not found` }, 404);
     }
 
-    db.update(bots)
+    await db
+      .update(bots)
       .set({ status: "paused", updatedAt: new Date().toISOString() })
-      .where(eq(bots.id, botId))
-      .run();
+      .where(eq(bots.id, botId));
 
-    const updated = db.select().from(bots).where(eq(bots.id, botId)).get();
+    const [updated] = await db.select().from(bots).where(eq(bots.id, botId));
     if (!updated) {
       throw new Error("Failed to pause bot");
     }
@@ -365,22 +352,21 @@ export function registerBotRoutes(app: OpenAPIHono<AppBindings>) {
     const { botId } = c.req.valid("param");
     const userId = c.get("userId");
 
-    const bot = db
+    const [bot] = await db
       .select()
       .from(bots)
-      .where(and(eq(bots.id, botId), eq(bots.userId, userId)))
-      .get();
+      .where(and(eq(bots.id, botId), eq(bots.userId, userId)));
 
     if (!bot) {
       return c.json({ message: `Bot ${botId} not found` }, 404);
     }
 
-    db.update(bots)
+    await db
+      .update(bots)
       .set({ status: "active", updatedAt: new Date().toISOString() })
-      .where(eq(bots.id, botId))
-      .run();
+      .where(eq(bots.id, botId));
 
-    const updated = db.select().from(bots).where(eq(bots.id, botId)).get();
+    const [updated] = await db.select().from(bots).where(eq(bots.id, botId));
     if (!updated) {
       throw new Error("Failed to resume bot");
     }

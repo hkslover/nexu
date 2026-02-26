@@ -31,7 +31,12 @@ export const channelListResponseSchema = z.object({
   channels: z.array(channelResponseSchema),
 });
 
+export const slackOAuthUrlResponseSchema = z.object({
+  url: z.string(),
+});
+
 export type ChannelType = z.infer<typeof channelTypeSchema>;
 export type ChannelStatus = z.infer<typeof channelStatusSchema>;
 export type ConnectSlackInput = z.infer<typeof connectSlackSchema>;
 export type ChannelResponse = z.infer<typeof channelResponseSchema>;
+export type SlackOAuthUrlResponse = z.infer<typeof slackOAuthUrlResponseSchema>;

@@ -3,8 +3,10 @@ import { defineConfig } from "drizzle-kit";
 export default defineConfig({
   schema: "./src/db/schema/index.ts",
   out: "./drizzle",
-  dialect: "sqlite",
+  dialect: "postgresql",
   dbCredentials: {
-    url: process.env.DATABASE_URL ?? "file:./nexu.db",
+    url:
+      process.env.DATABASE_URL ??
+      "postgresql://nexu:nexu@localhost:5433/nexu_dev",
   },
 });

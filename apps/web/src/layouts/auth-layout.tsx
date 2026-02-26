@@ -1,41 +1,21 @@
-import { Layout, Spin } from "antd";
+import { authClient } from "@/lib/auth-client";
+import { Loader2 } from "lucide-react";
 import { Navigate, Outlet } from "react-router-dom";
-import { authClient } from "../lib/auth-client";
 
 export function AuthLayout() {
   const { data: session, isPending } = authClient.useSession();
 
   if (isPending) {
     return (
-      <Layout
-        style={{
-          minHeight: "100vh",
-          display: "flex",
-          justifyContent: "center",
-          alignItems: "center",
-        }}
-      >
-        <Spin size="large" />
-      </Layout>
+      <div className="flex min-h-screen items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
     );
   }
 
-  if (session?.user) {
-    return <Navigate to="/bots" replace />;
+  if (!session?.user) {
+    return <Navigate to="/auth" replace />;
   }
 
-  return (
-    <Layout
-      style={{
-        minHeight: "100vh",
-        display: "flex",
-        justifyContent: "center",
-        alignItems: "center",
-      }}
-    >
-      <div style={{ width: 400, padding: 24 }}>
-        <Outlet />
-      </div>
-    </Layout>
-  );
+  return <Outlet />;
 }

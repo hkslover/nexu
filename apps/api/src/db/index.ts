@@ -1,13 +1,10 @@
-import BetterSqlite3 from "better-sqlite3";
-import { drizzle } from "drizzle-orm/better-sqlite3";
+import { drizzle } from "drizzle-orm/node-postgres";
+import { Pool } from "pg";
 import * as schema from "./schema/index.js";
 
-const databaseUrl = process.env.DATABASE_URL ?? "file:./nexu.db";
-const dbPath = databaseUrl.replace(/^file:/, "");
+const databaseUrl =
+  process.env.DATABASE_URL ?? "postgresql://nexu:nexu@localhost:5433/nexu_dev";
 
-const sqlite = new BetterSqlite3(dbPath);
-sqlite.pragma("journal_mode = WAL");
-sqlite.pragma("foreign_keys = OFF");
-
-export const db = drizzle(sqlite, { schema });
+export const pool = new Pool({ connectionString: databaseUrl });
+export const db = drizzle(pool, { schema });
 export type Database = typeof db;

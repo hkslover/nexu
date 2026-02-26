@@ -38,9 +38,18 @@ export async function generatePoolConfig(
   gatewayToken?: string,
 ): Promise<OpenClawConfig> {
   // Try lookup by id first, fall back to poolName
+  const [poolById] = await db
+    .select()
+    .from(gatewayPools)
+    .where(eq(gatewayPools.id, poolIdOrName));
   const pool =
-    db.select().from(gatewayPools).where(eq(gatewayPools.id, poolIdOrName)).get() ??
-    db.select().from(gatewayPools).where(eq(gatewayPools.poolName, poolIdOrName)).get();
+    poolById ??
+    (
+      await db
+        .select()
+        .from(gatewayPools)
+        .where(eq(gatewayPools.poolName, poolIdOrName))
+    )[0];
 
   if (!pool) {
     throw new Error(`Pool ${poolIdOrName} not found`);
@@ -48,11 +57,7 @@ export async function generatePoolConfig(
 
   const poolId = pool.id;
 
-  const poolBots = await db
-    .select()
-    .from(bots)
-    .where(eq(bots.poolId, poolId))
-    .all();
+  const poolBots = await db.select().from(bots).where(eq(bots.poolId, poolId));
 
   const activeBots = poolBots.filter((b) => b.status === "active");
 
@@ -62,8 +67,7 @@ export async function generatePoolConfig(
     const channels = await db
       .select()
       .from(botChannels)
-      .where(eq(botChannels.botId, bot.id))
-      .all();
+      .where(eq(botChannels.botId, bot.id));
 
     const connectedChannels = channels.filter(
       (ch) => ch.status === "connected",
@@ -76,8 +80,7 @@ export async function generatePoolConfig(
           encryptedValue: channelCredentials.encryptedValue,
         })
         .from(channelCredentials)
-        .where(eq(channelCredentials.botChannelId, channel.id))
-        .all();
+        .where(eq(channelCredentials.botChannelId, channel.id));
 
       channelsWithBots.push({
         channelId: channel.id,
@@ -103,7 +106,7 @@ export async function generatePoolConfig(
       agent.default = true;
     }
 
-    if (bot.modelId && bot.modelId !== "gpt-4o") {
+    if (bot.modelId) {
       agent.model = { primary: bot.modelId };
     }
 
@@ -170,10 +173,10 @@ export async function generatePoolConfig(
   const validated = openclawConfigSchema.parse(config);
 
   // Increment config version for this pool
-  db.update(gatewayPools)
+  await db
+    .update(gatewayPools)
     .set({ configVersion: sql`${gatewayPools.configVersion} + 1` })
-    .where(eq(gatewayPools.id, poolId))
-    .run();
+    .where(eq(gatewayPools.id, poolId));
 
   return validated;
 }

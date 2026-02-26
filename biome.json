@@ -31,6 +31,7 @@
     "ignore": [
       "node_modules",
       "dist",
+      "docs/cowork",
       "apps/web/lib/api",
       "*.gen.ts",
       "*.d.ts",

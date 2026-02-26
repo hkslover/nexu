@@ -1,33 +1,31 @@
-import { ConfigProvider, theme } from "antd";
 import { Navigate, Route, Routes } from "react-router-dom";
 import { AuthLayout } from "./layouts/auth-layout";
-import { DashboardLayout } from "./layouts/dashboard-layout";
-import { BotDetailPage } from "./pages/bot-detail";
-import { BotListPage } from "./pages/bot-list";
-import { LoginPage } from "./pages/login";
-import { RegisterPage } from "./pages/register";
+import { WorkspaceLayout } from "./layouts/workspace-layout";
+import { AuthPage } from "./pages/auth";
+import { BotConfigPage } from "./pages/bot-config";
+import { ChannelsPage } from "./pages/channels";
+import { InvitePage } from "./pages/invite";
+import { LandingPage } from "./pages/landing";
+import { SlackOAuthCallbackPage } from "./pages/slack-oauth-callback";
 
 export function App() {
   return (
-    <ConfigProvider
-      theme={{
-        algorithm: theme.defaultAlgorithm,
-        token: {
-          colorPrimary: "#1677ff",
-        },
-      }}
-    >
-      <Routes>
-        <Route element={<AuthLayout />}>
-          <Route path="/login" element={<LoginPage />} />
-          <Route path="/register" element={<RegisterPage />} />
+    <Routes>
+      <Route path="/" element={<LandingPage />} />
+      <Route path="/auth" element={<AuthPage />} />
+      <Route element={<AuthLayout />}>
+        <Route path="/invite" element={<InvitePage />} />
+        <Route element={<WorkspaceLayout />}>
+          <Route path="/workspace" element={<ChannelsPage />} />
+          <Route path="/workspace/channels" element={<ChannelsPage />} />
+          <Route path="/workspace/bot" element={<BotConfigPage />} />
+          <Route
+            path="/workspace/channels/slack/callback"
+            element={<SlackOAuthCallbackPage />}
+          />
         </Route>
-        <Route element={<DashboardLayout />}>
-          <Route path="/bots" element={<BotListPage />} />
-          <Route path="/bots/:botId" element={<BotDetailPage />} />
-        </Route>
-        <Route path="*" element={<Navigate to="/bots" replace />} />
-      </Routes>
-    </ConfigProvider>
+      </Route>
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
   );
 }

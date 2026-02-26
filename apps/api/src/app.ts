@@ -4,7 +4,12 @@ import { logger } from "hono/logger";
 import { authMiddleware } from "./middleware/auth.js";
 import { registerAuthRoutes } from "./routes/auth-routes.js";
 import { registerBotRoutes } from "./routes/bot-routes.js";
-import { registerChannelRoutes } from "./routes/channel-routes.js";
+import {
+  registerChannelRoutes,
+  registerSlackOAuthCallback,
+} from "./routes/channel-routes.js";
+import { registerInviteRoutes } from "./routes/invite-routes.js";
+import { registerModelRoutes } from "./routes/model-routes.js";
 import { registerPoolRoutes } from "./routes/pool-routes.js";
 
 import type { AppBindings } from "./types.js";
@@ -22,11 +27,14 @@ export function createApp() {
   );
 
   registerAuthRoutes(app);
+  registerSlackOAuthCallback(app);
 
   app.use("/v1/*", authMiddleware);
 
   registerBotRoutes(app);
   registerChannelRoutes(app);
+  registerInviteRoutes(app);
+  registerModelRoutes(app);
   registerPoolRoutes(app);
 
   app.doc("/openapi.json", {

@@ -1,22 +1,23 @@
 import {
   integer,
-  sqliteTable,
+  pgTable,
+  serial,
   text,
   uniqueIndex,
-} from "drizzle-orm/sqlite-core";
+} from "drizzle-orm/pg-core";
 
-export const bots = sqliteTable(
+export const bots = pgTable(
   "bots",
   {
-    pk: integer("pk").primaryKey({ autoIncrement: true }),
+    pk: serial("pk").primaryKey(),
     id: text("id").notNull().unique(),
     userId: text("user_id").notNull(),
     name: text("name").notNull(),
     slug: text("slug").notNull(),
     systemPrompt: text("system_prompt"),
-    modelId: text("model_id").default("gpt-4o"),
-    agentConfig: text("agent_config", { mode: "json" }).default("{}"),
-    toolsConfig: text("tools_config", { mode: "json" }).default("{}"),
+    modelId: text("model_id").default("anthropic/claude-sonnet-4-6"),
+    agentConfig: text("agent_config").default("{}"),
+    toolsConfig: text("tools_config").default("{}"),
     status: text("status").default("active"),
     poolId: text("pool_id"),
     createdAt: text("created_at")
@@ -29,16 +30,16 @@ export const bots = sqliteTable(
   (table) => [uniqueIndex("bots_user_slug_idx").on(table.userId, table.slug)],
 );
 
-export const botChannels = sqliteTable(
+export const botChannels = pgTable(
   "bot_channels",
   {
-    pk: integer("pk").primaryKey({ autoIncrement: true }),
+    pk: serial("pk").primaryKey(),
     id: text("id").notNull().unique(),
     botId: text("bot_id").notNull(),
     channelType: text("channel_type").notNull(),
     accountId: text("account_id").notNull(),
     status: text("status").default("pending"),
-    channelConfig: text("channel_config", { mode: "json" }).default("{}"),
+    channelConfig: text("channel_config").default("{}"),
     createdAt: text("created_at")
       .notNull()
       .$defaultFn(() => new Date().toISOString()),
@@ -55,10 +56,10 @@ export const botChannels = sqliteTable(
   ],
 );
 
-export const channelCredentials = sqliteTable(
+export const channelCredentials = pgTable(
   "channel_credentials",
   {
-    pk: integer("pk").primaryKey({ autoIncrement: true }),
+    pk: serial("pk").primaryKey(),
     id: text("id").notNull().unique(),
     botChannelId: text("bot_channel_id").notNull(),
     credentialType: text("credential_type").notNull(),
@@ -72,8 +73,8 @@ export const channelCredentials = sqliteTable(
   ],
 );
 
-export const gatewayPools = sqliteTable("gateway_pools", {
-  pk: integer("pk").primaryKey({ autoIncrement: true }),
+export const gatewayPools = pgTable("gateway_pools", {
+  pk: serial("pk").primaryKey(),
   id: text("id").notNull().unique(),
   poolName: text("pool_name").notNull().unique(),
   poolType: text("pool_type").default("shared"),
@@ -88,8 +89,8 @@ export const gatewayPools = sqliteTable("gateway_pools", {
     .$defaultFn(() => new Date().toISOString()),
 });
 
-export const gatewayAssignments = sqliteTable("gateway_assignments", {
-  pk: integer("pk").primaryKey({ autoIncrement: true }),
+export const gatewayAssignments = pgTable("gateway_assignments", {
+  pk: serial("pk").primaryKey(),
   id: text("id").notNull().unique(),
   botId: text("bot_id").notNull().unique(),
   poolId: text("pool_id").notNull(),
@@ -98,8 +99,8 @@ export const gatewayAssignments = sqliteTable("gateway_assignments", {
     .$defaultFn(() => new Date().toISOString()),
 });
 
-export const users = sqliteTable("users", {
-  pk: integer("pk").primaryKey({ autoIncrement: true }),
+export const users = pgTable("users", {
+  pk: serial("pk").primaryKey(),
   id: text("id").notNull().unique(),
   authUserId: text("auth_user_id").notNull().unique(),
   plan: text("plan").default("free"),
@@ -111,8 +112,8 @@ export const users = sqliteTable("users", {
     .$defaultFn(() => new Date().toISOString()),
 });
 
-export const usageMetrics = sqliteTable("usage_metrics", {
-  pk: integer("pk").primaryKey({ autoIncrement: true }),
+export const usageMetrics = pgTable("usage_metrics", {
+  pk: serial("pk").primaryKey(),
   id: text("id").notNull().unique(),
   botId: text("bot_id").notNull(),
   periodStart: text("period_start").notNull(),
@@ -124,10 +125,10 @@ export const usageMetrics = sqliteTable("usage_metrics", {
     .$defaultFn(() => new Date().toISOString()),
 });
 
-export const webhookRoutes = sqliteTable(
+export const webhookRoutes = pgTable(
   "webhook_routes",
   {
-    pk: integer("pk").primaryKey({ autoIncrement: true }),
+    pk: serial("pk").primaryKey(),
     id: text("id").notNull().unique(),
     channelType: text("channel_type").notNull(),
     externalId: text("external_id").notNull(),
@@ -144,3 +145,29 @@ export const webhookRoutes = sqliteTable(
     ),
   ],
 );
+
+export const oauthStates = pgTable("oauth_states", {
+  pk: serial("pk").primaryKey(),
+  id: text("id").notNull().unique(),
+  state: text("state").notNull().unique(),
+  botId: text("bot_id").notNull(),
+  userId: text("user_id").notNull(),
+  expiresAt: text("expires_at").notNull(),
+  usedAt: text("used_at"),
+  createdAt: text("created_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+});
+
+export const inviteCodes = pgTable("invite_codes", {
+  pk: serial("pk").primaryKey(),
+  id: text("id").notNull().unique(),
+  code: text("code").notNull().unique(),
+  maxUses: integer("max_uses").default(100),
+  usedCount: integer("used_count").default(0),
+  createdBy: text("created_by"),
+  expiresAt: text("expires_at"),
+  createdAt: text("created_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+});

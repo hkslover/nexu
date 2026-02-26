@@ -255,6 +255,43 @@ export type PostV1BotsByBotIdResumeResponses = {
 
 export type PostV1BotsByBotIdResumeResponse = PostV1BotsByBotIdResumeResponses[keyof PostV1BotsByBotIdResumeResponses];
 
+export type GetV1BotsByBotIdChannelsSlackOauthUrlData = {
+    body?: never;
+    path: {
+        botId: string;
+    };
+    query?: never;
+    url: '/v1/bots/{botId}/channels/slack/oauth-url';
+};
+
+export type GetV1BotsByBotIdChannelsSlackOauthUrlErrors = {
+    /**
+     * Bot not found
+     */
+    404: {
+        message: string;
+    };
+    /**
+     * Slack OAuth not configured
+     */
+    500: {
+        message: string;
+    };
+};
+
+export type GetV1BotsByBotIdChannelsSlackOauthUrlError = GetV1BotsByBotIdChannelsSlackOauthUrlErrors[keyof GetV1BotsByBotIdChannelsSlackOauthUrlErrors];
+
+export type GetV1BotsByBotIdChannelsSlackOauthUrlResponses = {
+    /**
+     * Slack OAuth authorization URL
+     */
+    200: {
+        url: string;
+    };
+};
+
+export type GetV1BotsByBotIdChannelsSlackOauthUrlResponse = GetV1BotsByBotIdChannelsSlackOauthUrlResponses[keyof GetV1BotsByBotIdChannelsSlackOauthUrlResponses];
+
 export type PostV1BotsByBotIdChannelsSlackConnectData = {
     body?: {
         botToken: string;
@@ -414,6 +451,51 @@ export type GetV1BotsByBotIdChannelsByChannelIdStatusResponses = {
 };
 
 export type GetV1BotsByBotIdChannelsByChannelIdStatusResponse = GetV1BotsByBotIdChannelsByChannelIdStatusResponses[keyof GetV1BotsByBotIdChannelsByChannelIdStatusResponses];
+
+export type PostV1InviteValidateData = {
+    body?: {
+        code: string;
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/invite/validate';
+};
+
+export type PostV1InviteValidateResponses = {
+    /**
+     * Validation result
+     */
+    200: {
+        valid: boolean;
+        message?: string;
+    };
+};
+
+export type PostV1InviteValidateResponse = PostV1InviteValidateResponses[keyof PostV1InviteValidateResponses];
+
+export type GetV1ModelsData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/v1/models';
+};
+
+export type GetV1ModelsResponses = {
+    /**
+     * Available models
+     */
+    200: {
+        models: Array<{
+            id: string;
+            name: string;
+            provider: string;
+            isDefault?: boolean;
+            description?: string;
+        }>;
+    };
+};
+
+export type GetV1ModelsResponse = GetV1ModelsResponses[keyof GetV1ModelsResponses];
 
 export type GetApiInternalPoolsByPoolIdConfigData = {
     body?: never;
