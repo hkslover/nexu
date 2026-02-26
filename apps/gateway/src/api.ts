@@ -2,9 +2,9 @@ import {
   runtimePoolHeartbeatSchema,
   runtimePoolRegisterSchema,
 } from "@nexu/shared";
-import { env } from "./env";
-import type { RuntimeState } from "./state";
-import { withTimeout } from "./utils";
+import { env } from "./env.js";
+import type { RuntimeState } from "./state.js";
+import { withTimeout } from "./utils.js";
 
 export async function fetchJson(
   path: string,

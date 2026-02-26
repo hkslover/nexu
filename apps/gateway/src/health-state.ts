@@ -1,4 +1,4 @@
-import type { RuntimeStatus } from "./state";
+import type { RuntimeStatus } from "./state.js";
 
 export interface GatewayHealthEvaluatorConfig {
   failDegradedThreshold: number;

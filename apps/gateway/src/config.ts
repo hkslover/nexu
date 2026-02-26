@@ -1,11 +1,11 @@
 import { mkdir, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { runtimePoolConfigResponseSchema } from "@nexu/shared";
-import { fetchJson } from "./api";
-import { env } from "./env";
-import { log } from "./log";
-import type { RuntimeState } from "./state";
-import { setConfigSyncStatus } from "./state";
+import { fetchJson } from "./api.js";
+import { env } from "./env.js";
+import { log } from "./log.js";
+import type { RuntimeState } from "./state.js";
+import { setConfigSyncStatus } from "./state.js";
 
 async function atomicWriteConfig(configJson: string): Promise<void> {
   await mkdir(dirname(env.OPENCLAW_CONFIG_PATH), { recursive: true });

@@ -1,10 +1,14 @@
-import { registerPool } from "./api";
-import { env, envWarnings } from "./env";
-import { waitGatewayReady } from "./gateway-health";
-import { log } from "./log";
-import { runGatewayHealthLoops, runHeartbeatLoop, runPollLoop } from "./loops";
-import { createRuntimeState } from "./state";
-import { sleep } from "./utils";
+import { registerPool } from "./api.js";
+import { env, envWarnings } from "./env.js";
+import { waitGatewayReady } from "./gateway-health.js";
+import { log } from "./log.js";
+import {
+  runGatewayHealthLoops,
+  runHeartbeatLoop,
+  runPollLoop,
+} from "./loops.js";
+import { createRuntimeState } from "./state.js";
+import { sleep } from "./utils.js";
 
 const state = createRuntimeState();
 

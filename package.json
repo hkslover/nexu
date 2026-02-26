@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "NODE_OPTIONS=--conditions=development pnpm --parallel -r dev",
     "build": "pnpm -r build",
+    "check:esm-imports": "node scripts/check-esm-specifiers.mjs",
     "typecheck": "pnpm -r typecheck",
     "lint": "biome check .",
     "format": "biome check --write .",

@@ -1,9 +1,9 @@
 import { execFile } from "node:child_process";
 import type { ExecFileException } from "node:child_process";
-import { env } from "./env";
-import { log } from "./log";
-import type { GatewayProbeErrorCode } from "./state";
-import { sleep } from "./utils";
+import { env } from "./env.js";
+import { log } from "./log.js";
+import type { GatewayProbeErrorCode } from "./state.js";
+import { sleep } from "./utils.js";
 
 export type GatewayProbeType = "liveness" | "deep";
 

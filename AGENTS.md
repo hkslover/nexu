@@ -86,6 +86,9 @@ All commands are pnpm-based. Use `pnpm --filter` to target a single app.
 - `pnpm --filter @nexu/api build`
 - `pnpm --filter @nexu/web build`
 
+### ESM import safety
+- `pnpm check:esm-imports` (scan built `apps/api/dist` and `apps/gateway/dist` for extensionless relative ESM specifiers)
+
 ### Typecheck
 - `pnpm typecheck` (all apps)
 - `pnpm --filter @nexu/api typecheck`
@@ -119,6 +122,8 @@ All commands are pnpm-based. Use `pnpm --filter` to target a single app.
 ### TypeScript
 - Strict mode enabled in `tsconfig.base.json`.
 - `apps/api` uses `type: "module"` (ESM).
+- `apps/api` and `apps/gateway` compile with `module: "NodeNext"` + `moduleResolution: "NodeNext"`.
+- In Node ESM apps (`apps/api`, `apps/gateway`), all relative imports must use explicit runtime extensions (`./foo.js`), including `import type`.
 - Prefer `z.infer<typeof schema>` over manual type definitions.
 - Prefer explicit types at module boundaries and exported functions.
 - **`any` is banned.** Use `unknown` with narrowing if type is uncertain.
@@ -261,5 +266,12 @@ Rules:
 
 - `pnpm typecheck` — always after TypeScript changes
 - `pnpm lint` — always after any code changes
+- `pnpm check:esm-imports` — required when touching `apps/api` or `apps/gateway` imports/build config
 - `pnpm generate-types` — after API route/schema changes
 - `pnpm test` — after logic changes
+
+## CI policy
+
+- `.github/workflows/ci.yml` runs on PRs and `main` pushes.
+- CI must pass: `pnpm typecheck`, `pnpm lint`, `pnpm build`, `pnpm check:esm-imports`.
+- Goal: prevent runtime `ERR_MODULE_NOT_FOUND` from extensionless ESM imports in production pods.

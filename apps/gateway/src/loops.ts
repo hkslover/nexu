@@ -1,7 +1,10 @@
-import { sendHeartbeat } from "./api";
-import { pollLatestConfig } from "./config";
-import { env } from "./env";
-import { probeGatewayDeepHealth, probeGatewayLiveness } from "./gateway-health";
+import { sendHeartbeat } from "./api.js";
+import { pollLatestConfig } from "./config.js";
+import { env } from "./env.js";
+import {
+  probeGatewayDeepHealth,
+  probeGatewayLiveness,
+} from "./gateway-health.js";
 import {
   type GatewayHealthEvaluator,
   type GatewayHealthEvaluatorConfig,
@@ -11,16 +14,16 @@ import {
   onDeepHealthSuccess,
   onLivenessFailure,
   onLivenessSuccess,
-} from "./health-state";
-import { log } from "./log";
+} from "./health-state.js";
+import { log } from "./log.js";
 import {
   type RuntimeState,
   markGatewayProbeFailure,
   markGatewayProbeSuccess,
   setConfigSyncStatus,
   setGatewayStatus,
-} from "./state";
-import { sleep } from "./utils";
+} from "./state.js";
+import { sleep } from "./utils.js";
 
 const gatewayHealthConfig: GatewayHealthEvaluatorConfig = {
   failDegradedThreshold: env.RUNTIME_GATEWAY_FAIL_DEGRADED_THRESHOLD,
