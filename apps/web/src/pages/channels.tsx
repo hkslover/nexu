@@ -1,6 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { identify, track } from "@/lib/tracking";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertCircle,
@@ -480,6 +481,8 @@ function SetupGuideView({
     },
     onSuccess: () => {
       toast.success("Discord connected!");
+      track("channel_ready", { channel: "discord" });
+      identify({ channels_connected: 1 });
       setCurrentStep((prev) => prev + 1);
     },
     onError: (err: Error) => toast.error(err.message),
@@ -499,6 +502,8 @@ function SetupGuideView({
     },
     onSuccess: () => {
       toast.success("Slack connected!");
+      track("channel_ready", { channel: "slack" });
+      identify({ channels_connected: 1 });
       setCurrentStep((prev) => prev + 1);
     },
     onError: (err: Error) => toast.error(err.message),
