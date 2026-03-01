@@ -22,7 +22,7 @@ import { createRuntimeState } from "../state.js";
 const fetchJson = vi.mocked(api.fetchJson);
 
 function makePayload(
-  skills: Record<string, string>,
+  skills: Record<string, Record<string, string>>,
   hash?: string,
   version = 1,
 ) {
@@ -34,6 +34,17 @@ function makePayload(
     skills,
     createdAt: new Date().toISOString(),
   };
+}
+
+/** Shorthand: wrap flat skill content into nested { "SKILL.md": content } format */
+function flat(
+  skills: Record<string, string>,
+): Record<string, Record<string, string>> {
+  const nested: Record<string, Record<string, string>> = {};
+  for (const [name, content] of Object.entries(skills)) {
+    nested[name] = { "SKILL.md": content };
+  }
+  return nested;
 }
 
 describe("Gateway skills.ts", () => {
@@ -55,7 +66,7 @@ describe("Gateway skills.ts", () => {
 
   it("1. hash matches state → returns false, no files written", async () => {
     const state = createRuntimeState();
-    const payload = makePayload({ "my-skill": "# Content" }, "abc123");
+    const payload = makePayload(flat({ "my-skill": "# Content" }), "abc123");
     state.lastSkillsHash = "abc123";
     (fetchJson as ReturnType<typeof vi.fn>).mockResolvedValue(payload);
 
@@ -68,7 +79,7 @@ describe("Gateway skills.ts", () => {
 
   it("2. hash differs → returns true, SKILL.md written", async () => {
     const state = createRuntimeState();
-    const payload = makePayload({ "my-skill": "# Hello" });
+    const payload = makePayload(flat({ "my-skill": "# Hello" }));
     (fetchJson as ReturnType<typeof vi.fn>).mockResolvedValue(payload);
 
     const result = await pollLatestSkills(state);
@@ -83,7 +94,7 @@ describe("Gateway skills.ts", () => {
 
   it("3. after write → lastSkillsHash updated, skillsSyncStatus active", async () => {
     const state = createRuntimeState();
-    const payload = makePayload({ "my-skill": "# Hello" });
+    const payload = makePayload(flat({ "my-skill": "# Hello" }));
     (fetchJson as ReturnType<typeof vi.fn>).mockResolvedValue(payload);
 
     await pollLatestSkills(state);
@@ -95,12 +106,12 @@ describe("Gateway skills.ts", () => {
   it("4. snapshot removes a skill → old dir deleted, new file present", async () => {
     // First write: skill-a and skill-b
     const state = createRuntimeState();
-    const payload1 = makePayload({ "skill-a": "a", "skill-b": "b" });
+    const payload1 = makePayload(flat({ "skill-a": "a", "skill-b": "b" }));
     (fetchJson as ReturnType<typeof vi.fn>).mockResolvedValue(payload1);
     await pollLatestSkills(state);
 
     // Second write: only skill-a remains
-    const payload2 = makePayload({ "skill-a": "a updated" });
+    const payload2 = makePayload(flat({ "skill-a": "a updated" }));
     (fetchJson as ReturnType<typeof vi.fn>).mockResolvedValue(payload2);
     await pollLatestSkills(state);
 
@@ -117,7 +128,7 @@ describe("Gateway skills.ts", () => {
 
   it("5. invalid name in payload → throws 'invalid skill name'", async () => {
     const state = createRuntimeState();
-    const payload = makePayload({ "../escape": "evil" });
+    const payload = makePayload(flat({ "../escape": "evil" }));
     (fetchJson as ReturnType<typeof vi.fn>).mockResolvedValue(payload);
 
     await expect(pollLatestSkills(state)).rejects.toThrow("invalid skill name");
@@ -129,18 +140,18 @@ describe("Gateway skills.ts", () => {
 
   it("6. multiple skills → all SKILL.md files written via pollLatestSkills", async () => {
     const state = createRuntimeState();
-    const skillsMap = {
+    const skillsFlat = {
       "skill-one": "# One",
       "skill-two": "# Two",
       "skill-three": "# Three",
     };
-    const payload = makePayload(skillsMap);
+    const payload = makePayload(flat(skillsFlat));
     (fetchJson as ReturnType<typeof vi.fn>).mockResolvedValue(payload);
 
     const result = await pollLatestSkills(state);
 
     expect(result).toBe(true);
-    for (const [name, content] of Object.entries(skillsMap)) {
+    for (const [name, content] of Object.entries(skillsFlat)) {
       const written = await readFile(join(tempDir, name, "SKILL.md"), "utf8");
       expect(written).toBe(content);
     }
@@ -154,7 +165,7 @@ describe("Gateway skills.ts", () => {
   it("8. write + read → content matches", async () => {
     const state = createRuntimeState();
     const content = "# My Skill\n\nDoes things.";
-    const payload = makePayload({ "content-skill": content });
+    const payload = makePayload(flat({ "content-skill": content }));
     (fetchJson as ReturnType<typeof vi.fn>).mockResolvedValue(payload);
 
     await pollLatestSkills(state);
@@ -168,7 +179,7 @@ describe("Gateway skills.ts", () => {
 
   it("9. after write → no *.tmp files in skill dir", async () => {
     const state = createRuntimeState();
-    const payload = makePayload({ "clean-skill": "# Clean" });
+    const payload = makePayload(flat({ "clean-skill": "# Clean" }));
     (fetchJson as ReturnType<typeof vi.fn>).mockResolvedValue(payload);
 
     await pollLatestSkills(state);

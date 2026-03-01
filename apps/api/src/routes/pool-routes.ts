@@ -8,9 +8,9 @@ import {
   runtimePoolRegisterResponseSchema,
   runtimePoolRegisterSchema,
 } from "@nexu/shared";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db } from "../db/index.js";
-import { gatewayPools } from "../db/schema/index.js";
+import { bots, gatewayPools } from "../db/schema/index.js";
 import { generatePoolConfig } from "../lib/config-generator.js";
 import { requireInternalToken } from "../middleware/internal-auth.js";
 import {
@@ -131,6 +131,21 @@ const getPoolConfigByVersionRoute = createRoute({
   },
 });
 
+async function buildAgentMeta(
+  poolId: string,
+): Promise<Record<string, { botId: string }>> {
+  const poolBots = await db
+    .select({ id: bots.id, slug: bots.slug, status: bots.status })
+    .from(bots)
+    .where(and(eq(bots.poolId, poolId), eq(bots.status, "active")));
+
+  const agentMeta: Record<string, { botId: string }> = {};
+  for (const bot of poolBots) {
+    agentMeta[bot.slug] = { botId: bot.id };
+  }
+  return agentMeta;
+}
+
 export function registerPoolRoutes(app: OpenAPIHono<AppBindings>) {
   app.openapi(getPoolConfigRoute, async (c) => {
     requireInternalToken(c);
@@ -214,12 +229,14 @@ export function registerPoolRoutes(app: OpenAPIHono<AppBindings>) {
     }
 
     const snapshot = await publishPoolConfigSnapshot(db, poolId);
+    const agentMeta = await buildAgentMeta(poolId);
     return c.json(
       {
         poolId: snapshot.poolId,
         version: snapshot.version,
         configHash: snapshot.configHash,
         config: snapshot.config,
+        agentMeta,
         createdAt: snapshot.createdAt,
       },
       200,
@@ -238,12 +255,14 @@ export function registerPoolRoutes(app: OpenAPIHono<AppBindings>) {
       );
     }
 
+    const agentMeta = await buildAgentMeta(poolId);
     return c.json(
       {
         poolId: snapshot.poolId,
         version: snapshot.version,
         configHash: snapshot.configHash,
         config: snapshot.config,
+        agentMeta,
         createdAt: snapshot.createdAt,
       },
       200,

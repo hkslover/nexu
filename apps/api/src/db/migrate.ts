@@ -291,6 +291,13 @@ export async function migrate(dbUrl?: string) {
     ALTER TABLE users ADD COLUMN IF NOT EXISTS onboarding_completed_at TEXT;
   `);
 
+  // Multi-file skills support
+  await client.query(`
+    ALTER TABLE skills ADD COLUMN IF NOT EXISTS files TEXT NOT NULL DEFAULT '{}';
+    UPDATE skills SET files = json_build_object('SKILL.md', content)::text
+      WHERE files = '{}' AND content IS NOT NULL AND content != '';
+  `);
+
   console.log("Database migrated successfully");
   await client.end();
 }

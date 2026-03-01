@@ -8,14 +8,21 @@ interface SkillsSnapshotRecord {
   id: string;
   version: number;
   skillsHash: string;
-  skills: Record<string, string>;
+  skills: Record<string, Record<string, string>>;
   createdAt: string;
 }
 
-export function toSkillsHash(skillsMap: Record<string, string>): string {
-  const sorted = Object.fromEntries(
-    Object.entries(skillsMap).sort(([a], [b]) => a.localeCompare(b)),
-  );
+export function toSkillsHash(
+  skillsMap: Record<string, Record<string, string>>,
+): string {
+  const sorted: Record<string, Record<string, string>> = {};
+  for (const [name, files] of Object.entries(skillsMap).sort(([a], [b]) =>
+    a.localeCompare(b),
+  )) {
+    sorted[name] = Object.fromEntries(
+      Object.entries(files).sort(([a], [b]) => a.localeCompare(b)),
+    );
+  }
   return crypto
     .createHash("sha256")
     .update(JSON.stringify(sorted))
@@ -28,14 +35,26 @@ export async function publishSkillsSnapshot(
   db: Database,
 ): Promise<SkillsSnapshotRecord> {
   const activeSkills = await db
-    .select({ name: skills.name, content: skills.content })
+    .select({
+      name: skills.name,
+      content: skills.content,
+      files: skills.files,
+    })
     .from(skills)
     .where(eq(skills.status, "active"))
     .orderBy(skills.name);
 
-  const skillsMap: Record<string, string> = {};
+  const skillsMap: Record<string, Record<string, string>> = {};
   for (const skill of activeSkills) {
-    skillsMap[skill.name] = skill.content;
+    if (skill.files && skill.files !== "{}") {
+      try {
+        skillsMap[skill.name] = JSON.parse(skill.files);
+      } catch {
+        skillsMap[skill.name] = { "SKILL.md": skill.content };
+      }
+    } else {
+      skillsMap[skill.name] = { "SKILL.md": skill.content };
+    }
   }
 
   const skillsHash = toSkillsHash(skillsMap);
@@ -54,7 +73,10 @@ export async function publishSkillsSnapshot(
         id: latest.id,
         version: latest.version,
         skillsHash: latest.skillsHash,
-        skills: JSON.parse(latest.skillsJson) as Record<string, string>,
+        skills: JSON.parse(latest.skillsJson) as Record<
+          string,
+          Record<string, string>
+        >,
         createdAt: latest.createdAt,
       };
     }
@@ -85,7 +107,10 @@ export async function publishSkillsSnapshot(
         id: committed.id,
         version: committed.version,
         skillsHash: committed.skillsHash,
-        skills: JSON.parse(committed.skillsJson) as Record<string, string>,
+        skills: JSON.parse(committed.skillsJson) as Record<
+          string,
+          Record<string, string>
+        >,
         createdAt: committed.createdAt,
       };
     }
@@ -106,11 +131,17 @@ export async function getLatestSkillsSnapshot(
     .limit(1);
 
   if (latest) {
+    const parsed = JSON.parse(latest.skillsJson);
+    const firstValue = Object.values(parsed)[0];
+    // Detect old flat format: value is a string instead of an object
+    if (typeof firstValue === "string") {
+      return publishSkillsSnapshot(db);
+    }
     return {
       id: latest.id,
       version: latest.version,
       skillsHash: latest.skillsHash,
-      skills: JSON.parse(latest.skillsJson) as Record<string, string>,
+      skills: parsed as Record<string, Record<string, string>>,
       createdAt: latest.createdAt,
     };
   }

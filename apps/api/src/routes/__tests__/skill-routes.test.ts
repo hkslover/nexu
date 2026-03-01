@@ -44,6 +44,7 @@ async function createTables(pool: pg.Pool) {
       id TEXT NOT NULL UNIQUE,
       name TEXT NOT NULL UNIQUE,
       content TEXT NOT NULL,
+      files TEXT NOT NULL DEFAULT '{}',
       status TEXT DEFAULT 'active',
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
@@ -167,7 +168,7 @@ describe("Skill Routes", () => {
         headers: AUTH,
       });
       const getBody = (await getRes.json()) as {
-        skills: Record<string, string>;
+        skills: Record<string, Record<string, string>>;
       };
       expect(getBody.skills["my-skill"]).toBeUndefined();
     });
@@ -240,7 +241,7 @@ describe("Skill Routes", () => {
       expect(res.status).toBe(200);
       const body = (await res.json()) as {
         version: number;
-        skills: Record<string, string>;
+        skills: Record<string, Record<string, string>>;
         skillsHash: string;
       };
       expect(body.version).toBe(1);
@@ -261,8 +262,10 @@ describe("Skill Routes", () => {
       });
 
       expect(res.status).toBe(200);
-      const body = (await res.json()) as { skills: Record<string, string> };
-      expect(body.skills["hello-world"]).toBe("# Hello World");
+      const body = (await res.json()) as { skills: Record<string, Record<string, string>> };
+      expect(body.skills["hello-world"]).toEqual({
+        "SKILL.md": "# Hello World",
+      });
     });
 
     it("12. active + inactive → only active in response", async () => {
@@ -283,8 +286,10 @@ describe("Skill Routes", () => {
       });
 
       expect(res.status).toBe(200);
-      const body = (await res.json()) as { skills: Record<string, string> };
-      expect(body.skills["active-skill"]).toBe("active");
+      const body = (await res.json()) as { skills: Record<string, Record<string, string>> };
+      expect(body.skills["active-skill"]).toEqual({
+        "SKILL.md": "active",
+      });
       expect(body.skills["inactive-skill"]).toBeUndefined();
     });
 
@@ -418,10 +423,12 @@ describe("Skill Routes", () => {
       });
       const getBody = (await getRes.json()) as {
         version: number;
-        skills: Record<string, string>;
+        skills: Record<string, Record<string, string>>;
       };
       expect(getBody.version).toBe(3);
-      expect(getBody.skills["skill-a"]).toBe("content-a");
+      expect(getBody.skills["skill-a"]).toEqual({
+        "SKILL.md": "content-a",
+      });
       expect(getBody.skills["skill-b"]).toBeUndefined();
     });
   });

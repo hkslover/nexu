@@ -23,6 +23,7 @@ const skillNameParam = z.object({
 
 const putSkillBodySchema = z.object({
   content: z.string().min(1),
+  files: z.record(z.string()).optional(),
   status: z.enum(["active", "inactive"]).optional(),
 });
 
@@ -103,12 +104,19 @@ export function registerSkillRoutes(app: OpenAPIHono<AppBindings>) {
     const now = new Date().toISOString();
     const status = body.status ?? "active";
 
+    const filesMap: Record<string, string> = body.files
+      ? { ...body.files }
+      : {};
+    filesMap["SKILL.md"] = body.content;
+    const filesJson = JSON.stringify(filesMap);
+
     await db
       .insert(skills)
       .values({
         id: createId(),
         name,
         content: body.content,
+        files: filesJson,
         status,
         createdAt: now,
         updatedAt: now,
@@ -117,6 +125,7 @@ export function registerSkillRoutes(app: OpenAPIHono<AppBindings>) {
         target: skills.name,
         set: {
           content: body.content,
+          files: filesJson,
           status,
           updatedAt: now,
         },

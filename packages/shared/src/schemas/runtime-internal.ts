@@ -29,6 +29,7 @@ export const runtimePoolConfigResponseSchema = z.object({
   version: z.number().int().nonnegative(),
   configHash: z.string(),
   config: openclawConfigSchema,
+  agentMeta: z.record(z.object({ botId: z.string() })).optional(),
   createdAt: z.string(),
 });
 
@@ -57,7 +58,7 @@ export type RuntimePoolConfigResponse = z.infer<
 export const runtimeSkillsResponseSchema = z.object({
   version: z.number().int().nonnegative(),
   skillsHash: z.string(),
-  skills: z.record(z.string()),
+  skills: z.record(z.record(z.string())),
   createdAt: z.string().datetime(),
 });
 

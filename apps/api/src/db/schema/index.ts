@@ -194,6 +194,7 @@ export const skills = pgTable("skills", {
   id: text("id").notNull().unique(),
   name: text("name").notNull().unique(),
   content: text("content").notNull(),
+  files: text("files").notNull().default("{}"),
   status: text("status").default("active"),
   createdAt: text("created_at")
     .notNull()
