@@ -5,6 +5,7 @@ import { join, resolve } from "node:path";
 
 const repoRoot = process.cwd();
 const maxHealthAttempts = 60;
+const probeTimeoutMs = 5_000;
 
 function parseArgs(argv) {
   const [mode, ...rest] = argv;
@@ -55,8 +56,11 @@ function createCheckContext(mode) {
       readinessUrls: {
         api: "http://127.0.0.1:50800/api/internal/desktop/ready",
         web: "http://127.0.0.1:50810/api/internal/desktop/ready",
-        webSurface: "http://127.0.0.1:50810/",
+        webSurface: "http://127.0.0.1:50810/workspace",
         openclawHealth: "http://127.0.0.1:18789/health",
+      },
+      processChecks: {
+        tmuxSessionName: "nexu-desktop",
       },
       diagnosticsFiles: [resolve(desktopLogsDir, "desktop-diagnostics.json")],
       logs: {
@@ -95,8 +99,11 @@ function createCheckContext(mode) {
     readinessUrls: {
       api: "http://127.0.0.1:50800/api/internal/desktop/ready",
       web: "http://127.0.0.1:50810/api/internal/desktop/ready",
-      webSurface: "http://127.0.0.1:50810/",
+      webSurface: "http://127.0.0.1:50810/workspace",
       openclawHealth: "http://127.0.0.1:18789/health",
+    },
+    processChecks: {
+      pidFile: process.env.NEXU_DESKTOP_PACKAGED_PID_PATH ?? null,
     },
     diagnosticsFiles: compactPaths([
       resolve(packagedLogsDir, "desktop-diagnostics.json"),
@@ -243,19 +250,19 @@ async function firstExistingPath(paths) {
   return paths[0] ?? null;
 }
 
-async function resolveLogTargets(context) {
-  const logs = Object.fromEntries(
-    await Promise.all(
-      Object.entries(context.logs).map(async ([unit, paths]) => [
-        unit,
-        await firstExistingPath(paths),
-      ]),
-    ),
-  );
-
+async function readFirstExistingLog(paths) {
+  const filePath = await firstExistingPath(paths);
   return {
-    diagnosticsFile: await firstExistingPath(context.diagnosticsFiles),
-    logs,
+    filePath,
+    content: filePath ? await readLogIfExists(filePath) : null,
+  };
+}
+
+async function readFirstExistingJson(paths) {
+  const filePath = await firstExistingPath(paths);
+  return {
+    filePath,
+    content: filePath ? await readJsonIfExists(filePath) : null,
   };
 }
 
@@ -272,9 +279,54 @@ async function isPortListening(port) {
   });
 }
 
+async function isTmuxSessionRunning(sessionName) {
+  return new Promise((resolvePromise) => {
+    const child = spawn("tmux", ["has-session", "-t", sessionName], {
+      cwd: repoRoot,
+      env: process.env,
+      stdio: "ignore",
+    });
+
+    child.on("error", () => resolvePromise(false));
+    child.on("exit", (code) => resolvePromise(code === 0));
+  });
+}
+
+function isPidAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function readPidIfAlive(pidFile) {
+  if (!pidFile || !(await fileExists(pidFile))) {
+    return { alive: false, pid: null, detail: "pid file is missing" };
+  }
+
+  const pidValue = (await readFile(pidFile, "utf8")).trim();
+  const pid = Number.parseInt(pidValue, 10);
+
+  if (!Number.isInteger(pid)) {
+    return {
+      alive: false,
+      pid: null,
+      detail: `invalid pid value: ${pidValue}`,
+    };
+  }
+
+  return isPidAlive(pid)
+    ? { alive: true, pid, detail: `pid ${pid} is running` }
+    : { alive: false, pid, detail: `pid ${pid} is not running` };
+}
+
 async function fetchText(url) {
   try {
-    const response = await fetch(url);
+    const response = await fetch(url, {
+      signal: AbortSignal.timeout(probeTimeoutMs),
+    });
     const body = await response.text();
     return { ok: response.ok, status: response.status, body };
   } catch (error) {
@@ -284,6 +336,27 @@ async function fetchText(url) {
       body: error instanceof Error ? error.message : String(error),
     };
   }
+}
+
+async function collectAppProcessResults(context) {
+  if (context.processChecks.pidFile) {
+    return {
+      mainProcess: await readPidIfAlive(context.processChecks.pidFile),
+      tmuxSession: null,
+    };
+  }
+
+  return {
+    mainProcess: {
+      alive: true,
+      pid: null,
+      detail: "dev app liveness is tracked via tmux session",
+    },
+    tmuxSession: {
+      alive: await isTmuxSessionRunning(context.processChecks.tmuxSessionName),
+      detail: `tmux session ${context.processChecks.tmuxSessionName}`,
+    },
+  };
 }
 
 function buildMissingCheckSummary(missingChecks) {
@@ -309,6 +382,7 @@ async function collectProbeResults(context) {
   ]);
 
   const browserControlListening = await isPortListening(18791);
+  const appProcessResults = await collectAppProcessResults(context);
 
   return {
     portResults,
@@ -317,17 +391,94 @@ async function collectProbeResults(context) {
     webSurface,
     openclawHealth,
     browserControlListening,
+    appProcessResults,
   };
 }
 
-function probesPassed(results) {
+function getDiagnosticsUnit(diagnostics, unitId) {
+  const units = diagnostics?.runtime?.state?.units;
+  if (!Array.isArray(units)) {
+    return null;
+  }
+
+  const match = units.find(
+    (unit) => isRuntimeUnitState(unit) && unit.id === unitId,
+  );
+  return isRuntimeUnitState(match) ? match : null;
+}
+
+function getLatestWorkspaceWebview(diagnostics) {
+  if (!Array.isArray(diagnostics?.embeddedContents)) {
+    return null;
+  }
+
+  const workspaceEntries = diagnostics.embeddedContents.filter(
+    (entry) =>
+      isRecord(entry) &&
+      entry.type === "webview" &&
+      typeof entry.lastUrl === "string" &&
+      entry.lastUrl.includes("/workspace"),
+  );
+
+  if (workspaceEntries.length === 0) {
+    return null;
+  }
+
+  return workspaceEntries.reduce((latest, entry) => {
+    const latestEventAt =
+      typeof latest.lastEventAt === "string"
+        ? Date.parse(latest.lastEventAt)
+        : Number.NEGATIVE_INFINITY;
+    const entryEventAt =
+      typeof entry.lastEventAt === "string"
+        ? Date.parse(entry.lastEventAt)
+        : Number.NEGATIVE_INFINITY;
+
+    if (entryEventAt > latestEventAt) {
+      return entry;
+    }
+
+    if (entryEventAt < latestEventAt) {
+      return latest;
+    }
+
+    const latestId = typeof latest.id === "number" ? latest.id : -1;
+    const entryId = typeof entry.id === "number" ? entry.id : -1;
+    return entryId > latestId ? entry : latest;
+  });
+}
+
+function diagnosticsChecksPassed(diagnostics) {
+  if (!isRecord(diagnostics)) {
+    return false;
+  }
+
+  const gatewayUnit = getDiagnosticsUnit(diagnostics, "gateway");
+  const workspaceWebview = getLatestWorkspaceWebview(diagnostics);
+
+  return (
+    diagnostics.coldStart?.status === "succeeded" &&
+    diagnostics.renderer?.didFinishLoad === true &&
+    diagnostics.renderer?.processGone?.seen !== true &&
+    workspaceWebview?.didFinishLoad === true &&
+    workspaceWebview?.processGone?.seen !== true &&
+    workspaceWebview?.lastError === null &&
+    gatewayUnit?.phase === "running" &&
+    gatewayUnit.lastError === null
+  );
+}
+
+function probesPassed(results, diagnostics) {
   return (
     results.portResults.every((entry) => entry.listening) &&
     results.apiReady.body.includes('"ready":true') &&
     results.webReady.body.includes('"ready":true') &&
     results.webSurface.body.includes('<div id="root"></div>') &&
     results.openclawHealth.ok &&
-    results.browserControlListening
+    results.browserControlListening &&
+    results.appProcessResults.mainProcess.alive &&
+    (results.appProcessResults.tmuxSession?.alive ?? true) &&
+    diagnosticsChecksPassed(diagnostics)
   );
 }
 
@@ -368,6 +519,60 @@ function collectDiagnosticsIssues(diagnostics, count) {
       return `${entry.ts} ${entry.unitId} [reason=${entry.reasonCode}]${actionLabel} ${entry.message}`;
     })
     .slice(-count);
+}
+
+function collectDiagnosticsFailures(diagnostics) {
+  if (!isRecord(diagnostics)) {
+    return ["diagnostics file is unavailable"];
+  }
+
+  const failures = [];
+  if (diagnostics.coldStart?.status !== "succeeded") {
+    failures.push(
+      `cold start status=${String(diagnostics.coldStart?.status ?? "unknown")}`,
+    );
+  }
+  if (diagnostics.renderer?.didFinishLoad !== true) {
+    failures.push("renderer did not finish load");
+  }
+  if (diagnostics.renderer?.processGone?.seen === true) {
+    failures.push(
+      `renderer process gone: ${String(diagnostics.renderer.processGone.reason ?? "unknown")}`,
+    );
+  }
+
+  const gatewayUnit = getDiagnosticsUnit(diagnostics, "gateway");
+  const workspaceWebview = getLatestWorkspaceWebview(diagnostics);
+  if (!gatewayUnit) {
+    failures.push("gateway runtime unit is missing from diagnostics");
+  } else {
+    if (gatewayUnit.phase !== "running") {
+      failures.push(`gateway phase=${gatewayUnit.phase}`);
+    }
+    if (gatewayUnit.lastError) {
+      failures.push(`gateway lastError=${gatewayUnit.lastError}`);
+    }
+  }
+
+  if (!workspaceWebview) {
+    failures.push("workspace webview diagnostics are missing");
+  } else {
+    if (workspaceWebview.didFinishLoad !== true) {
+      failures.push("workspace webview did not finish load");
+    }
+    if (workspaceWebview.processGone?.seen === true) {
+      failures.push(
+        `workspace webview process gone: ${String(workspaceWebview.processGone.reason ?? "unknown")}`,
+      );
+    }
+    if (typeof workspaceWebview.lastError === "string") {
+      failures.push(
+        `workspace webview lastError=${workspaceWebview.lastError}`,
+      );
+    }
+  }
+
+  return failures;
 }
 
 function formatDiagnosticsSnapshot(diagnostics) {
@@ -415,6 +620,30 @@ function formatDiagnosticsSnapshot(diagnostics) {
     }
 
     lines.push(`renderer: ${rendererParts.join(", ")}`);
+  }
+
+  if (Array.isArray(diagnostics.embeddedContents)) {
+    const embeddedSummary = diagnostics.embeddedContents
+      .filter(isRecord)
+      .map((entry) => {
+        const parts = [
+          `${typeof entry.type === "string" ? entry.type : "unknown"}`,
+          `didFinishLoad=${String(entry.didFinishLoad === true)}`,
+          typeof entry.lastUrl === "string" ? `lastUrl=${entry.lastUrl}` : null,
+          typeof entry.lastError === "string"
+            ? `lastError=${entry.lastError}`
+            : null,
+          isRecord(entry.processGone) && entry.processGone.seen === true
+            ? `processGone=${String(entry.processGone.reason ?? "unknown")}/${String(entry.processGone.exitCode ?? "null")}`
+            : null,
+        ]
+          .filter(Boolean)
+          .join(",");
+        return `${String(entry.id ?? "unknown")}:${parts}`;
+      })
+      .join(" | ");
+
+    lines.push(`embedded: ${embeddedSummary || "none"}`);
   }
 
   if (Array.isArray(units)) {
@@ -633,9 +862,6 @@ async function captureLogs(context, captureDir) {
 }
 
 async function verifyRuntime(context) {
-  const resolvedTargets = await resolveLogTargets(context);
-  const { logs, diagnosticsFile } = resolvedTargets;
-
   if (context.statusCommand) {
     await runCommand(context.statusCommand[0], context.statusCommand[1]);
   }
@@ -644,26 +870,33 @@ async function verifyRuntime(context) {
     console.log(`Runtime health attempt ${attempt}/${maxHealthAttempts}`);
 
     const probeResults = await collectProbeResults(context);
+    const diagnosticsResult = await readFirstExistingJson(
+      context.diagnosticsFiles,
+    );
+    const diagnostics = diagnosticsResult.content;
 
-    if (probesPassed(probeResults)) {
+    if (probesPassed(probeResults, diagnostics)) {
       break;
     }
 
     await sleep(2000);
   }
 
-  const contents = {
-    coldStart: await readLogIfExists(logs.coldStart),
-    desktopMain: await readLogIfExists(logs.desktopMain),
-    pglite: await readLogIfExists(logs.pglite),
-    api: await readLogIfExists(logs.api),
-    web: await readLogIfExists(logs.web),
-    gateway: await readLogIfExists(logs.gateway),
-    openclaw: await readLogIfExists(logs.openclaw),
-  };
-  const diagnostics = diagnosticsFile
-    ? await readJsonIfExists(diagnosticsFile)
-    : null;
+  const logResults = Object.fromEntries(
+    await Promise.all(
+      Object.entries(context.logs).map(async ([unit, paths]) => [
+        unit,
+        await readFirstExistingLog(paths),
+      ]),
+    ),
+  );
+  const contents = Object.fromEntries(
+    Object.entries(logResults).map(([unit, result]) => [unit, result.content]),
+  );
+  const diagnosticsResult = await readFirstExistingJson(
+    context.diagnosticsFiles,
+  );
+  const diagnostics = diagnosticsResult.content;
   const probeResults = await collectProbeResults(context);
 
   const missingChecks = [];
@@ -697,11 +930,26 @@ async function verifyRuntime(context) {
     addMissing("openclaw", "browser control port 18791 is not listening");
   }
 
+  if (!probeResults.appProcessResults.mainProcess.alive) {
+    addMissing(
+      context.mode === "dev" ? "desktop-shell" : "packaged-app",
+      probeResults.appProcessResults.mainProcess.detail,
+    );
+  }
+
+  if (probeResults.appProcessResults.tmuxSession?.alive === false) {
+    addMissing("desktop-shell", "tmux session nexu-desktop is not running");
+  }
+
   if (!probeResults.openclawHealth.ok) {
     addMissing(
       "openclaw",
       `health endpoint response: ${probeResults.openclawHealth.body || "<no response>"}`,
     );
+  }
+
+  for (const detail of collectDiagnosticsFailures(diagnostics)) {
+    addMissing("diagnostics", detail);
   }
 
   if (missingChecks.length === 0) {
@@ -715,13 +963,13 @@ async function verifyRuntime(context) {
     `${context.mode === "dev" ? "Desktop" : "Packaged"} runtime health verification failed. Missing checks:\n${buildMissingCheckSummary(missingChecks)}`,
   );
   console.error("\nPersistent log files checked:");
-  for (const filePath of Object.values(logs)) {
+  for (const { filePath } of Object.values(logResults)) {
     if (filePath) {
       console.error(` - ${filePath}`);
     }
   }
-  if (diagnosticsFile) {
-    console.error(` - ${diagnosticsFile}`);
+  if (diagnosticsResult.filePath) {
+    console.error(` - ${diagnosticsResult.filePath}`);
   }
 
   console.error("\n--- diagnostics snapshot ---");
@@ -747,7 +995,9 @@ async function verifyRuntime(context) {
       continue;
     }
 
-    console.error(`\n--- ${logs[unit]} (warn/error entries) ---`);
+    console.error(
+      `\n--- ${logResults[unit].filePath} (warn/error entries) ---`,
+    );
     for (const issue of readableIssues) {
       console.error(issue);
     }
