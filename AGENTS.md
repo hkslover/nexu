@@ -103,6 +103,7 @@ When changing DB structure, follow this workflow.
 - Never commit code changes until explicitly told to do so.
 - Whenever you add a new environment variable, update `deploy/helm/nexu/values.yaml` in the same change.
 - Gateway sidecar: never derive state paths from `OPENCLAW_CONFIG_PATH`. Use `env.OPENCLAW_STATE_DIR` for state-related files (sessions, skills, nexu-context.json). See `specs/guides/gateway-environment-guide.md`.
+- Desktop packaged app: never use `npx`, `npm`, `pnpm`, or any shell command that relies on the user's PATH. The packaged Electron app has no shell profile — resolve bin paths programmatically via `require.resolve()` and execute with `process.execPath`. The app must be fully self-contained.
 
 ## Observability conventions
 
@@ -147,7 +148,7 @@ See `ARCHITECTURE.md` for the full bird's-eye view. Key points:
 | Architecture & data flows | `ARCHITECTURE.md` |
 | System design | `specs/designs/openclaw-multi-tenant.md` |
 | OpenClaw internals | `specs/designs/openclaw-architecture-internals.md` |
-| Engineering principles | `specs/design-specs/core-beliefs.md` |
+| Engineering principles | `specs/design-docs/core-beliefs.md` |
 | Config schema & pitfalls | `specs/references/openclaw-config-schema.md` |
 | API coding patterns | `specs/references/api-patterns.md` |
 | Infrastructure | `specs/references/infrastructure.md` |

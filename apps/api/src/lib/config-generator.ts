@@ -87,6 +87,50 @@ interface ChannelWithBot {
   credentials: ChannelCredentialRow[];
 }
 
+const byokDefaultBaseUrls: Record<string, string> = {
+  anthropic: "https://api.anthropic.com/v1",
+  openai: "https://api.openai.com/v1",
+  google: "https://generativelanguage.googleapis.com/v1beta/openai",
+};
+
+function isByokProviderProxied(
+  providerId: string,
+  baseUrl: string | null,
+): boolean {
+  const defaultBaseUrl = normalizeProviderBaseUrl(
+    byokDefaultBaseUrls[providerId],
+  );
+  const normalizedBaseUrl = normalizeProviderBaseUrl(baseUrl);
+
+  return Boolean(
+    defaultBaseUrl && normalizedBaseUrl && normalizedBaseUrl !== defaultBaseUrl,
+  );
+}
+
+function getByokProviderKey(input: {
+  id: string;
+  providerId: string;
+  baseUrl: string | null;
+}): string {
+  if (input.providerId === "custom") {
+    return `custom_${input.id}`;
+  }
+
+  return isByokProviderProxied(input.providerId, input.baseUrl)
+    ? `byok_${input.providerId}`
+    : input.providerId;
+}
+
+function getByokProviderModelId(
+  providerKey: string,
+  providerId: string,
+  modelId: string,
+): string {
+  return providerKey === `byok_${providerId}`
+    ? `${providerId}/${modelId}`
+    : modelId;
+}
+
 export async function generatePoolConfig(
   db: Database,
   poolIdOrName: string,
@@ -174,24 +218,36 @@ export async function generatePoolConfig(
     .from(modelProviders)
     .where(eq(modelProviders.enabled, true));
 
-  const byokProviderKeys = new Set(
-    byokProviders.map((bp) =>
-      bp.providerId === "custom" ? `custom_${bp.id}` : bp.providerId,
-    ),
-  );
+  // Map provider ID prefix (e.g. "anthropic") → OpenClaw provider key
+  // For proxied providers the key is "byok_anthropic", for direct it's "anthropic"
+  const byokPrefixToKey = new Map<string, string>();
+  for (const bp of byokProviders) {
+    const key = getByokProviderKey({
+      id: bp.id,
+      providerId: bp.providerId,
+      baseUrl: bp.baseUrl,
+    });
+    byokPrefixToKey.set(bp.providerId, key);
+  }
 
   // Prefix model ID with provider namespace for routing.
   // Model IDs from the UI use the format "{provider}/{model}" — e.g.
   // "link/gemini-2.5-flash", "anthropic/claude-sonnet-4".
-  // If the provider prefix matches a BYOK provider configured by the user,
-  // keep it as-is so OpenClaw routes to the user's own API key.
+  // For proxied BYOK providers, remap to "byok_{provider}/{provider}/{model}"
+  // so OpenClaw strips "byok_{provider}/" and sends "{provider}/{model}" to the proxy.
   function resolveModelId(rawModelId: string): string {
     if (rawModelId.startsWith("litellm/") || rawModelId.startsWith("link/"))
       return rawModelId;
-    // Check if prefix matches a BYOK provider — route to user's own key
     const slashIdx = rawModelId.indexOf("/");
-    if (slashIdx > 0 && byokProviderKeys.has(rawModelId.substring(0, slashIdx)))
-      return rawModelId;
+    if (slashIdx > 0) {
+      const prefix = rawModelId.substring(0, slashIdx);
+      const byokKey = byokPrefixToKey.get(prefix);
+      if (byokKey) {
+        // Proxied: "anthropic/claude-sonnet-4" → "byok_anthropic/anthropic/claude-sonnet-4"
+        // Direct:  "anthropic/claude-sonnet-4" → "anthropic/claude-sonnet-4" (unchanged)
+        return byokKey === prefix ? rawModelId : `${byokKey}/${rawModelId}`;
+      }
+    }
     if (hasLitellm) return `litellm/${rawModelId}`;
     if (hasLink) return `link/${rawModelId}`;
     return rawModelId;
@@ -552,18 +608,15 @@ export async function generatePoolConfig(
   }
 
   // Add BYOK (user-provided) providers (already loaded above for resolveModelId)
-  const byokDefaultBaseUrls: Record<string, string> = {
-    anthropic: "https://api.anthropic.com/v1",
-    openai: "https://api.openai.com/v1",
-    google: "https://generativelanguage.googleapis.com/v1beta/openai",
-  };
-
   for (const bp of byokProviders) {
-    const providerKey =
-      bp.providerId === "custom" ? `custom_${bp.id}` : bp.providerId;
     const baseUrl = normalizeProviderBaseUrl(
       bp.baseUrl ?? byokDefaultBaseUrls[bp.providerId],
     );
+    const providerKey = getByokProviderKey({
+      id: bp.id,
+      providerId: bp.providerId,
+      baseUrl: bp.baseUrl,
+    });
     if (!baseUrl) continue;
 
     const modelIds: string[] = JSON.parse(bp.modelsJson || "[]");
@@ -572,7 +625,7 @@ export async function generatePoolConfig(
       apiKey: decrypt(bp.encryptedApiKey),
       api: "openai-completions",
       models: modelIds.map((id) => ({
-        id,
+        id: getByokProviderModelId(providerKey, bp.providerId, id),
         name: id,
         reasoning: false,
         input: ["text", "image"],

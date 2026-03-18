@@ -561,7 +561,18 @@ app.whenReady().then(async () => {
       });
     }
 
-    catalogMgr = new CatalogManager(app.getPath("userData"));
+    catalogMgr = new CatalogManager(
+      app.getPath("userData"),
+      (level, message) => {
+        writeDesktopMainLog({
+          source: "skillhub",
+          stream: level === "error" ? "stderr" : "stdout",
+          kind: "app",
+          message,
+          logFilePath: getDesktopLogFilePath("desktop-main.log"),
+        });
+      },
+    );
     setCatalogManager(catalogMgr);
     catalogMgr.start();
 
