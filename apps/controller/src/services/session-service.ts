@@ -1,8 +1,12 @@
 import type { CreateSessionInput, UpdateSessionInput } from "@nexu/shared";
 import type { SessionsRuntime } from "../runtime/sessions-runtime.js";
+import type { ArtifactService } from "./artifact-service.js";
 
 export class SessionService {
-  constructor(private readonly sessionsRuntime: SessionsRuntime) {}
+  constructor(
+    private readonly sessionsRuntime: SessionsRuntime,
+    private readonly artifactService?: ArtifactService,
+  ) {}
 
   async listSessions(params: {
     limit: number;
@@ -50,7 +54,20 @@ export class SessionService {
   }
 
   async deleteSession(id: string) {
-    return this.sessionsRuntime.deleteSession(id);
+    const session = await this.sessionsRuntime.getSession(id);
+    if (!session) {
+      return false;
+    }
+
+    await this.sessionsRuntime.deleteSessionFiles(
+      session.botId,
+      session.sessionKey,
+    );
+    await this.artifactService?.deleteArtifactsForSession(
+      session.botId,
+      session.sessionKey,
+    );
+    return true;
   }
 
   async getChatHistory(id: string, limit?: number) {

@@ -278,10 +278,15 @@ export class SessionsRuntime {
     if (!session) {
       return false;
     }
-    const filePath = this.getSessionFilePath(session.botId, session.sessionKey);
+
+    await this.deleteSessionFiles(session.botId, session.sessionKey);
+    return true;
+  }
+
+  async deleteSessionFiles(botId: string, sessionKey: string): Promise<void> {
+    const filePath = this.getSessionFilePath(botId, sessionKey);
     await rm(filePath, { force: true });
     await rm(sessionMetadataPath(filePath), { force: true });
-    return true;
   }
 
   async getChatHistory(

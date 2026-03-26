@@ -1,4 +1,11 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -7,7 +14,9 @@ import { createApp } from "../src/app/create-app.js";
 import type { ControllerEnv } from "../src/app/env.js";
 import { SessionsRuntime } from "../src/runtime/sessions-runtime.js";
 import { createRuntimeState } from "../src/runtime/state.js";
+import { ArtifactService } from "../src/services/artifact-service.js";
 import { SessionService } from "../src/services/session-service.js";
+import { ArtifactsStore } from "../src/store/artifacts-store.js";
 
 function createEnv(rootDir: string): ControllerEnv {
   return {
@@ -53,6 +62,7 @@ function createEnv(rootDir: string): ControllerEnv {
 function createTestContainer(rootDir: string): ControllerContainer {
   const env = createEnv(rootDir);
   const sessionsRuntime = new SessionsRuntime(env);
+  const artifactService = new ArtifactService(new ArtifactsStore(env), env);
 
   return {
     env,
@@ -69,7 +79,7 @@ function createTestContainer(rootDir: string): ControllerContainer {
     channelFallbackService: {
       stop: vi.fn(),
     } as unknown as ControllerContainer["channelFallbackService"],
-    sessionService: new SessionService(sessionsRuntime),
+    sessionService: new SessionService(sessionsRuntime, artifactService),
     runtimeConfigService: {} as ControllerContainer["runtimeConfigService"],
     runtimeModelStateService:
       {} as ControllerContainer["runtimeModelStateService"],
@@ -77,7 +87,8 @@ function createTestContainer(rootDir: string): ControllerContainer {
     integrationService: {} as ControllerContainer["integrationService"],
     localUserService: {} as ControllerContainer["localUserService"],
     desktopLocalService: {} as ControllerContainer["desktopLocalService"],
-    artifactService: {} as ControllerContainer["artifactService"],
+    analyticsService: {} as ControllerContainer["analyticsService"],
+    artifactService,
     templateService: {} as ControllerContainer["templateService"],
     skillhubService: {
       catalog: {
@@ -96,6 +107,7 @@ function createTestContainer(rootDir: string): ControllerContainer {
       dispose: vi.fn(),
     } as unknown as ControllerContainer["skillhubService"],
     openclawSyncService: {} as ControllerContainer["openclawSyncService"],
+    openclawAuthService: {} as ControllerContainer["openclawAuthService"],
     wsClient: {
       stop: vi.fn(),
     } as unknown as ControllerContainer["wsClient"],
@@ -116,6 +128,112 @@ describe("session routes", () => {
       await rm(rootDir, { recursive: true, force: true });
       rootDir = null;
     }
+  });
+
+  it("deletes session files and managed local artifacts together", async () => {
+    rootDir = await mkdtemp(path.join(tmpdir(), "nexu-session-delete-"));
+    const container = createTestContainer(rootDir);
+    const app = createApp(container);
+
+    const createSession = await app.request("/api/internal/sessions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        botId: "bot-art",
+        sessionKey: "delete-me",
+        title: "Delete me",
+        channelType: "slack",
+      }),
+    });
+
+    expect(createSession.status).toBe(201);
+
+    const transcriptPath = path.join(
+      rootDir,
+      ".openclaw",
+      "agents",
+      "bot-art",
+      "sessions",
+      "delete-me.jsonl",
+    );
+    const metadataPath = transcriptPath.replace(/\.jsonl$/, ".meta.json");
+    const managedImagePath = path.join(
+      rootDir,
+      ".nexu",
+      "artifacts",
+      "images",
+      "delete-me.png",
+    );
+    const externalImagePath = path.join(rootDir, "outside-delete-me.png");
+
+    const otherManagedImagePath = path.join(
+      rootDir,
+      ".nexu",
+      "artifacts",
+      "images",
+      "other-bot-delete-me.png",
+    );
+
+    await mkdir(path.dirname(transcriptPath), { recursive: true });
+    await mkdir(path.dirname(managedImagePath), { recursive: true });
+    await writeFile(transcriptPath, "", "utf8");
+    await writeFile(
+      metadataPath,
+      JSON.stringify({ sessionKey: "delete-me" }),
+      "utf8",
+    );
+    await writeFile(managedImagePath, "managed", "utf8");
+    await writeFile(externalImagePath, "external", "utf8");
+    await writeFile(otherManagedImagePath, "other-managed", "utf8");
+
+    await container.artifactService.createArtifact({
+      botId: "bot-art",
+      sessionKey: "delete-me",
+      title: "Managed artifact",
+      previewUrl: `file://${managedImagePath}`,
+      metadata: {
+        outputPath: managedImagePath,
+      },
+    });
+    await container.artifactService.createArtifact({
+      botId: "bot-art",
+      sessionKey: "delete-me",
+      title: "External artifact",
+      previewUrl: `file://${externalImagePath}`,
+      metadata: {
+        outputPath: externalImagePath,
+      },
+    });
+    await container.artifactService.createArtifact({
+      botId: "bot-other",
+      sessionKey: "delete-me",
+      title: "Other bot artifact",
+      previewUrl: `file://${otherManagedImagePath}`,
+      metadata: {
+        outputPath: otherManagedImagePath,
+      },
+    });
+
+    const response = await app.request("/api/v1/sessions/delete-me.jsonl", {
+      method: "DELETE",
+    });
+
+    expect(response.status).toBe(200);
+    await expect(stat(transcriptPath)).rejects.toThrow();
+    await expect(stat(metadataPath)).rejects.toThrow();
+    await expect(stat(managedImagePath)).rejects.toThrow();
+    await expect(readFile(externalImagePath, "utf8")).resolves.toBe("external");
+    await expect(readFile(otherManagedImagePath, "utf8")).resolves.toBe(
+      "other-managed",
+    );
+
+    const artifacts = await container.artifactService.listArtifacts({
+      limit: 10,
+      offset: 0,
+      sessionKey: "delete-me",
+    });
+    expect(artifacts.artifacts).toHaveLength(1);
+    expect(artifacts.artifacts[0]?.botId).toBe("bot-other");
   });
 
   it("serves cleaned chat history through the session messages API", async () => {
