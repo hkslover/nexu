@@ -9,6 +9,7 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { logger } from "../src/lib/logger.js";
 import type { ControllerContainer } from "../src/app/container.js";
 import { createApp } from "../src/app/create-app.js";
 import type { ControllerEnv } from "../src/app/env.js";
@@ -245,6 +246,61 @@ describe("session routes", () => {
     });
     expect(artifacts.artifacts).toHaveLength(1);
     expect(artifacts.artifacts[0]?.botId).toBe("bot-other");
+  });
+
+  it("still succeeds when artifact cleanup fails after session files are removed", async () => {
+    rootDir = await mkdtemp(path.join(tmpdir(), "nexu-session-delete-warning-"));
+    const container = createTestContainer(rootDir);
+    const app = createApp(container);
+
+    const createSession = await app.request("/api/internal/sessions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        botId: "bot-warning",
+        sessionKey: "warn-me",
+        title: "Warn me",
+        channelType: "slack",
+      }),
+    });
+
+    expect(createSession.status).toBe(201);
+
+    const transcriptPath = path.join(
+      rootDir,
+      ".openclaw",
+      "agents",
+      "bot-warning",
+      "sessions",
+      "warn-me.jsonl",
+    );
+    const metadataPath = transcriptPath.replace(/\.jsonl$/, ".meta.json");
+
+    const deleteArtifactsForSessionMock = vi
+      .spyOn(container.artifactService, "deleteArtifactsForSession")
+      .mockRejectedValueOnce(new Error("artifact cleanup failed"));
+    const loggerWarnMock = vi.spyOn(logger, "warn").mockImplementation(() => {});
+
+    const response = await app.request("/api/v1/sessions/warn-me.jsonl", {
+      method: "DELETE",
+    });
+
+    expect(response.status).toBe(200);
+    await expect(stat(transcriptPath)).rejects.toThrow();
+    await expect(stat(metadataPath)).rejects.toThrow();
+    expect(deleteArtifactsForSessionMock).toHaveBeenCalledWith(
+      "bot-warning",
+      "warn-me",
+    );
+    expect(loggerWarnMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: "warn-me.jsonl",
+        botId: "bot-warning",
+        sessionKey: "warn-me",
+        error: "artifact cleanup failed",
+      }),
+      "session_delete_artifact_cleanup_failed",
+    );
   });
 
   it("serves cleaned chat history through the session messages API", async () => {

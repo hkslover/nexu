@@ -4,6 +4,7 @@ import { getChannelChatUrl } from "@/lib/channel-links";
 import { getSessionFolderUrl, openLocalFolderUrl } from "@/lib/desktop-links";
 import { normalizeChannel, track } from "@/lib/tracking";
 import { cn } from "@/lib/utils";
+import * as Dialog from "@radix-ui/react-dialog";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowUpRight,
@@ -759,15 +760,84 @@ export function SessionsPage() {
             </div>
           </div>
           <div className="flex items-center gap-3">
-            <button
-              type="button"
-              data-delete-session-trigger="true"
-              onClick={() => setShowDeleteConfirm(true)}
-              className={dangerButtonClassName}
+            <Dialog.Root
+              open={showDeleteConfirm}
+              onOpenChange={setShowDeleteConfirm}
             >
-              <Trash2 className="size-[18px]" />
-              <span>Delete</span>
-            </button>
+              <Dialog.Trigger asChild>
+                <button
+                  type="button"
+                  data-delete-session-trigger="true"
+                  className={dangerButtonClassName}
+                >
+                  <Trash2 className="size-[18px]" />
+                  <span>Delete</span>
+                </button>
+              </Dialog.Trigger>
+              <Dialog.Portal>
+                <Dialog.Overlay className="absolute inset-0 z-20 bg-[rgba(15,23,42,0.38)]" />
+                <Dialog.Content
+                  data-delete-session-confirm="true"
+                  className="absolute inset-0 z-30 flex items-center justify-center px-6 focus:outline-none"
+                >
+                  <div className="w-full max-w-md rounded-[24px] border border-[rgba(15,23,42,0.08)] bg-white p-6 shadow-[0_24px_80px_rgba(15,23,42,0.18)]">
+                    <div className="flex items-start gap-3">
+                      <div className="mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-full bg-[rgba(254,226,226,0.9)] text-[#B42318]">
+                        <Trash2 className="size-5" />
+                      </div>
+                      <div>
+                        <Dialog.Title className="text-[16px] font-semibold text-text-primary">
+                          Delete this conversation?
+                        </Dialog.Title>
+                        <Dialog.Description className="mt-2 text-[13px] leading-6 text-text-secondary">
+                          This will permanently delete the chat history and any related
+                          local generated artwork or artifact files managed by Nexu.
+                          This action cannot be undone.
+                        </Dialog.Description>
+                      </div>
+                    </div>
+                    <div className="mt-6 flex items-center justify-end gap-3">
+                      <Dialog.Close asChild>
+                        <button
+                          type="button"
+                          disabled={deleteSessionMutation.isPending}
+                          className={cn(
+                            buttonClassName,
+                            "h-10 rounded-[14px] px-4 shadow-none",
+                            deleteSessionMutation.isPending &&
+                              "cursor-not-allowed opacity-60",
+                          )}
+                        >
+                          Cancel
+                        </button>
+                      </Dialog.Close>
+                      <button
+                        type="button"
+                        onClick={handleDeleteSession}
+                        disabled={deleteSessionMutation.isPending}
+                        className={cn(
+                          dangerButtonClassName,
+                          "h-10 rounded-[14px] px-4 shadow-none",
+                          deleteSessionMutation.isPending &&
+                            "cursor-not-allowed opacity-60",
+                        )}
+                      >
+                        {deleteSessionMutation.isPending ? (
+                          <Loader2 className="size-4 animate-spin" />
+                        ) : (
+                          <Trash2 className="size-4" />
+                        )}
+                        <span>
+                          {deleteSessionMutation.isPending
+                            ? "Deleting..."
+                            : "Delete conversation"}
+                        </span>
+                      </button>
+                    </div>
+                  </div>
+                </Dialog.Content>
+              </Dialog.Portal>
+            </Dialog.Root>
             <button
               type="button"
               data-session-folder-url={sessionFolderUrl ?? undefined}
@@ -821,67 +891,6 @@ export function SessionsPage() {
         </div>
       </div>
 
-      {showDeleteConfirm && (
-        <div className="absolute inset-0 z-20 flex items-center justify-center bg-[rgba(15,23,42,0.38)] px-6">
-          <div
-            data-delete-session-confirm="true"
-            className="w-full max-w-md rounded-[24px] border border-[rgba(15,23,42,0.08)] bg-white p-6 shadow-[0_24px_80px_rgba(15,23,42,0.18)]"
-          >
-            <div className="flex items-start gap-3">
-              <div className="mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-full bg-[rgba(254,226,226,0.9)] text-[#B42318]">
-                <Trash2 className="size-5" />
-              </div>
-              <div>
-                <h2 className="text-[16px] font-semibold text-text-primary">
-                  Delete this conversation?
-                </h2>
-                <p className="mt-2 text-[13px] leading-6 text-text-secondary">
-                  This will permanently delete the chat history and any related
-                  local generated artwork or artifact files managed by Nexu.
-                  This action cannot be undone.
-                </p>
-              </div>
-            </div>
-            <div className="mt-6 flex items-center justify-end gap-3">
-              <button
-                type="button"
-                onClick={() => setShowDeleteConfirm(false)}
-                disabled={deleteSessionMutation.isPending}
-                className={cn(
-                  buttonClassName,
-                  "h-10 rounded-[14px] px-4 shadow-none",
-                  deleteSessionMutation.isPending &&
-                    "cursor-not-allowed opacity-60",
-                )}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleDeleteSession}
-                disabled={deleteSessionMutation.isPending}
-                className={cn(
-                  dangerButtonClassName,
-                  "h-10 rounded-[14px] px-4 shadow-none",
-                  deleteSessionMutation.isPending &&
-                    "cursor-not-allowed opacity-60",
-                )}
-              >
-                {deleteSessionMutation.isPending ? (
-                  <Loader2 className="size-4 animate-spin" />
-                ) : (
-                  <Trash2 className="size-4" />
-                )}
-                <span>
-                  {deleteSessionMutation.isPending
-                    ? "Deleting..."
-                    : "Delete conversation"}
-                </span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
       {/* Message List */}
       <div className="flex-1 overflow-y-auto min-h-0">
         {chatLoading ? (

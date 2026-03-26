@@ -1,4 +1,5 @@
 import type { CreateSessionInput, UpdateSessionInput } from "@nexu/shared";
+import { logger } from "../lib/logger.js";
 import type { SessionsRuntime } from "../runtime/sessions-runtime.js";
 import type { ArtifactService } from "./artifact-service.js";
 
@@ -63,10 +64,24 @@ export class SessionService {
       session.botId,
       session.sessionKey,
     );
-    await this.artifactService?.deleteArtifactsForSession(
-      session.botId,
-      session.sessionKey,
-    );
+
+    try {
+      await this.artifactService?.deleteArtifactsForSession(
+        session.botId,
+        session.sessionKey,
+      );
+    } catch (error) {
+      logger.warn(
+        {
+          sessionId: id,
+          botId: session.botId,
+          sessionKey: session.sessionKey,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        "session_delete_artifact_cleanup_failed",
+      );
+    }
+
     return true;
   }
 

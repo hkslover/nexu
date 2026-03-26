@@ -156,6 +156,7 @@ async function createTestContainer(
   const analyticsService = {
     poll: vi.fn(async () => {}),
   } as unknown as ControllerContainer["analyticsService"];
+  const artifactService = new ArtifactService(artifactsStore, env);
 
   return {
     env,
@@ -168,7 +169,7 @@ async function createTestContainer(
     agentService: new AgentService(configStore, openclawSyncService),
     channelService: new ChannelService(configStore, openclawSyncService),
     channelFallbackService,
-    sessionService: new SessionService(sessionsRuntime),
+    sessionService: new SessionService(sessionsRuntime, artifactService),
     runtimeConfigService: new RuntimeConfigService(
       configStore,
       openclawSyncService,
@@ -183,7 +184,7 @@ async function createTestContainer(
       openclawProcess,
     ),
     analyticsService,
-    artifactService: new ArtifactService(artifactsStore, env),
+    artifactService,
     templateService: new TemplateService(configStore, openclawSyncService),
     skillhubService,
     openclawSyncService,
