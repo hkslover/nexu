@@ -275,6 +275,13 @@ describe("session routes", () => {
       "warn-me.jsonl",
     );
     const metadataPath = transcriptPath.replace(/\.jsonl$/, ".meta.json");
+    await mkdir(path.dirname(transcriptPath), { recursive: true });
+    await writeFile(transcriptPath, "", "utf8");
+    await writeFile(
+      metadataPath,
+      JSON.stringify({ sessionKey: "warn-me" }),
+      "utf8",
+    );
 
     const deleteArtifactsForSessionMock = vi
       .spyOn(container.artifactService, "deleteArtifactsForSession")

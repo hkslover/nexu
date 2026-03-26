@@ -625,15 +625,17 @@ export function SessionsPage() {
       }
       return data;
     },
-    onSuccess: async () => {
+    onSuccess: async (_data, sessionId) => {
       setShowDeleteConfirm(false);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["sidebar-sessions"] }),
-        queryClient.invalidateQueries({ queryKey: ["session-meta", id] }),
-        queryClient.invalidateQueries({ queryKey: ["chat-history", id] }),
+        queryClient.invalidateQueries({ queryKey: ["session-meta", sessionId] }),
+        queryClient.invalidateQueries({ queryKey: ["chat-history", sessionId] }),
       ]);
       toast.success("Conversation deleted.");
-      navigate("/workspace/sessions", { replace: true });
+      if (id === sessionId) {
+        navigate("/workspace/sessions", { replace: true });
+      }
     },
     onError: () => {
       toast.error("Failed to delete conversation.");
