@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { CreateArtifactInput, UpdateArtifactInput } from "@nexu/shared";
 import type { ControllerEnv } from "../app/env.js";
+import { logger } from "../lib/logger.js";
 import type { ArtifactsStore } from "../store/artifacts-store.js";
 import type { ControllerArtifact } from "../store/schemas.js";
 
@@ -54,28 +55,87 @@ export class ArtifactService {
     deletedArtifacts: number;
     deletedFiles: number;
   }> {
-    const deletedArtifacts =
-      await this.artifactsStore.deleteArtifactsForSession(botId, sessionKey);
+    const sessionArtifacts = (await this.artifactsStore.listArtifacts()).filter(
+      (artifact) =>
+        artifact.botId === botId && artifact.sessionKey === sessionKey,
+    );
+    const removableArtifactIds: string[] = [];
     let deletedFiles = 0;
 
-    for (const artifact of deletedArtifacts) {
-      const filePaths = this.collectManagedFilePaths(artifact);
+    for (const artifact of sessionArtifacts) {
+      const filePaths = this.collectManagedFilePaths(
+        artifact,
+        botId,
+        sessionKey,
+      );
+      let hasCleanupFailure = false;
+
       for (const filePath of filePaths) {
         try {
           const stats = await lstat(filePath);
+          if (stats.isDirectory()) {
+            hasCleanupFailure = true;
+            logger.warn(
+              {
+                artifactId: artifact.id,
+                botId,
+                sessionKey,
+                filePath,
+              },
+              "session_delete_artifact_cleanup_skipped_directory_path",
+            );
+            continue;
+          }
+
           await rm(filePath, {
             force: true,
-            recursive: stats.isDirectory(),
           });
           deletedFiles += 1;
-        } catch {
-          // Ignore per-file cleanup failures so session deletion still completes.
+        } catch (error) {
+          const errorCode =
+            error instanceof Error && "code" in error
+              ? String(error.code)
+              : undefined;
+          if (errorCode === "ENOENT") {
+            continue;
+          }
+
+          hasCleanupFailure = true;
+          logger.warn(
+            {
+              artifactId: artifact.id,
+              botId,
+              sessionKey,
+              filePath,
+              error: error instanceof Error ? error.message : String(error),
+            },
+            "session_delete_artifact_file_cleanup_failed",
+          );
         }
+      }
+
+      if (!hasCleanupFailure) {
+        removableArtifactIds.push(artifact.id);
       }
     }
 
+    const deletedArtifacts =
+      await this.artifactsStore.deleteArtifactsByIds(removableArtifactIds);
+
+    const retainedArtifacts = sessionArtifacts.length - deletedArtifacts;
+    if (retainedArtifacts > 0) {
+      logger.warn(
+        {
+          botId,
+          sessionKey,
+          retainedArtifacts,
+        },
+        "session_delete_artifact_index_retained_for_retry",
+      );
+    }
+
     return {
-      deletedArtifacts: deletedArtifacts.length,
+      deletedArtifacts,
       deletedFiles,
     };
   }
@@ -103,15 +163,23 @@ export class ArtifactService {
     };
   }
 
-  private collectManagedFilePaths(artifact: ControllerArtifact): string[] {
+  private collectManagedFilePaths(
+    artifact: ControllerArtifact,
+    botId: string,
+    sessionKey: string,
+  ): string[] {
     const candidatePaths = new Set<string>();
 
     this.addCandidatePath(candidatePaths, artifact.previewUrl);
-    this.addCandidatePath(candidatePaths, artifact.deployTarget);
     this.addCandidateFromMetadata(candidatePaths, artifact.metadata);
 
     return [...candidatePaths].filter((candidate) =>
-      this.isManagedPath(candidate),
+      this.isSessionOwnedArtifactPath(
+        candidate,
+        botId,
+        sessionKey,
+        artifact.id,
+      ),
     );
   }
 
@@ -125,22 +193,18 @@ export class ArtifactService {
 
     const directKeys = [
       "filePath",
-      "path",
       "localPath",
       "outputPath",
       "artifactPath",
       "imagePath",
       "previewPath",
-      "directoryPath",
-      "dirPath",
-      "workspacePath",
     ] as const;
 
     for (const key of directKeys) {
       this.addCandidateUnknown(candidatePaths, metadata[key]);
     }
 
-    const nestedKeys = ["files", "paths", "outputs", "artifacts"] as const;
+    const nestedKeys = ["files", "outputs", "artifacts"] as const;
     for (const key of nestedKeys) {
       this.addCandidateUnknown(candidatePaths, metadata[key]);
     }
@@ -164,11 +228,12 @@ export class ArtifactService {
 
     if (typeof value === "object" && value !== null) {
       const record = value as Record<string, unknown>;
-      this.addCandidateUnknown(candidatePaths, record.path);
       this.addCandidateUnknown(candidatePaths, record.filePath);
       this.addCandidateUnknown(candidatePaths, record.localPath);
       this.addCandidateUnknown(candidatePaths, record.outputPath);
-      this.addCandidateUnknown(candidatePaths, record.directoryPath);
+      this.addCandidateUnknown(candidatePaths, record.artifactPath);
+      this.addCandidateUnknown(candidatePaths, record.imagePath);
+      this.addCandidateUnknown(candidatePaths, record.previewPath);
     }
   }
 
@@ -206,20 +271,33 @@ export class ArtifactService {
     return path.resolve(value);
   }
 
-  private isManagedPath(candidate: string): boolean {
-    const managedRoots = [
-      this.env.nexuHomeDir,
-      this.env.openclawStateDir,
+  private isSessionOwnedArtifactPath(
+    candidate: string,
+    botId: string,
+    sessionKey: string,
+    artifactId: string,
+  ): boolean {
+    const artifactsRoot = path.resolve(
       path.dirname(this.env.artifactsIndexPath),
-    ].map((root) => path.resolve(root));
+    );
+    if (candidate === artifactsRoot) {
+      return false;
+    }
 
-    return managedRoots.some((root) => {
-      if (candidate === root) {
-        return false;
-      }
+    const relative = path.relative(artifactsRoot, candidate);
+    if (
+      relative.length === 0 ||
+      relative.startsWith("..") ||
+      path.isAbsolute(relative)
+    ) {
+      return false;
+    }
 
-      const relative = path.relative(root, candidate);
-      return !relative.startsWith("..") && !path.isAbsolute(relative);
-    });
+    const lowerRelative = relative.toLowerCase();
+    const scopeTokens = [sessionKey, botId, artifactId]
+      .map((token) => token.trim().toLowerCase())
+      .filter((token) => token.length > 0);
+
+    return scopeTokens.some((token) => lowerRelative.includes(token));
   }
 }

@@ -670,6 +670,18 @@ export class SessionsRuntime {
     return sessions.find((session) => session.id === id) ?? null;
   }
 
+  async getSessionForBot(
+    botId: string,
+    id: string,
+  ): Promise<SessionResponse | null> {
+    const sessions = await this.listSessions();
+    return (
+      sessions.find(
+        (session) => session.id === id && session.botId === botId,
+      ) ?? null
+    );
+  }
+
   private async getSessionByKey(
     botId: string,
     sessionKey: string,

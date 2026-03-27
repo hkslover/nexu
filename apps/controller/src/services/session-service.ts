@@ -54,8 +54,8 @@ export class SessionService {
     return this.sessionsRuntime.resetSession(id);
   }
 
-  async deleteSession(id: string) {
-    const session = await this.sessionsRuntime.getSession(id);
+  async deleteSession(id: string, botId: string) {
+    const session = await this.sessionsRuntime.getSessionForBot(botId, id);
     if (!session) {
       return false;
     }

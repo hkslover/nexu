@@ -616,21 +616,33 @@ export function SessionsPage() {
   });
 
   const deleteSessionMutation = useMutation({
-    mutationFn: async (sessionId: string) => {
+    mutationFn: async ({
+      sessionId,
+      botId,
+    }: {
+      sessionId: string;
+      botId: string;
+    }) => {
       const { data } = await deleteApiV1SessionsById({
         path: { id: sessionId },
+        query: { botId },
       });
       if (!data?.ok) {
         throw new Error("Session delete failed");
       }
       return data;
     },
-    onSuccess: async (_data, sessionId) => {
+    onSuccess: async (_data, variables) => {
+      const { sessionId } = variables;
       setShowDeleteConfirm(false);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["sidebar-sessions"] }),
-        queryClient.invalidateQueries({ queryKey: ["session-meta", sessionId] }),
-        queryClient.invalidateQueries({ queryKey: ["chat-history", sessionId] }),
+        queryClient.invalidateQueries({
+          queryKey: ["session-meta", sessionId],
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ["chat-history", sessionId],
+        }),
       ]);
       toast.success("Conversation deleted.");
       if (id === sessionId) {
@@ -718,11 +730,12 @@ export function SessionsPage() {
   };
 
   const handleDeleteSession = (): void => {
-    if (!id || deleteSessionMutation.isPending) {
+    if (!id || !session?.botId || deleteSessionMutation.isPending) {
+      toast.error("Failed to delete conversation.");
       return;
     }
 
-    deleteSessionMutation.mutate(id);
+    deleteSessionMutation.mutate({ sessionId: id, botId: session.botId });
   };
 
   return (
@@ -792,9 +805,9 @@ export function SessionsPage() {
                           Delete this conversation?
                         </Dialog.Title>
                         <Dialog.Description className="mt-2 text-[13px] leading-6 text-text-secondary">
-                          This will permanently delete the chat history and any related
-                          local generated artwork or artifact files managed by Nexu.
-                          This action cannot be undone.
+                          This will permanently delete the chat history and any
+                          related local generated artwork or artifact files
+                          managed by Nexu. This action cannot be undone.
                         </Dialog.Description>
                       </div>
                     </div>

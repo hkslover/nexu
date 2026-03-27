@@ -120,24 +120,25 @@ export class ArtifactsStore {
     return deleted;
   }
 
-  async deleteArtifactsForSession(
-    botId: string,
-    sessionKey: string,
-  ): Promise<ArtifactsIndex["artifacts"]> {
-    const deletedArtifacts: ArtifactsIndex["artifacts"] = [];
+  async deleteArtifactsByIds(ids: string[]): Promise<number> {
+    if (ids.length === 0) {
+      return 0;
+    }
+
+    const idSet = new Set(ids);
+    let deletedCount = 0;
 
     await this.store.update((data) => ({
       ...data,
       artifacts: data.artifacts.filter((artifact) => {
-        if (artifact.botId === botId && artifact.sessionKey === sessionKey) {
-          deletedArtifacts.push(artifact);
+        if (idSet.has(artifact.id)) {
+          deletedCount += 1;
           return false;
         }
-
         return true;
       }),
     }));
 
-    return deletedArtifacts;
+    return deletedCount;
   }
 }

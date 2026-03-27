@@ -9,10 +9,10 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { logger } from "../src/lib/logger.js";
 import type { ControllerContainer } from "../src/app/container.js";
 import { createApp } from "../src/app/create-app.js";
 import type { ControllerEnv } from "../src/app/env.js";
+import { logger } from "../src/lib/logger.js";
 import { SessionsRuntime } from "../src/runtime/sessions-runtime.js";
 import { createRuntimeState } from "../src/runtime/state.js";
 import { ArtifactService } from "../src/services/artifact-service.js";
@@ -225,9 +225,12 @@ describe("session routes", () => {
       },
     });
 
-    const response = await app.request("/api/v1/sessions/delete-me.jsonl", {
-      method: "DELETE",
-    });
+    const response = await app.request(
+      "/api/v1/sessions/delete-me.jsonl?botId=bot-art",
+      {
+        method: "DELETE",
+      },
+    );
 
     expect(response.status).toBe(200);
     await expect(stat(transcriptPath)).rejects.toThrow();
@@ -249,7 +252,9 @@ describe("session routes", () => {
   });
 
   it("still succeeds when artifact cleanup fails after session files are removed", async () => {
-    rootDir = await mkdtemp(path.join(tmpdir(), "nexu-session-delete-warning-"));
+    rootDir = await mkdtemp(
+      path.join(tmpdir(), "nexu-session-delete-warning-"),
+    );
     const container = createTestContainer(rootDir);
     const app = createApp(container);
 
@@ -286,11 +291,16 @@ describe("session routes", () => {
     const deleteArtifactsForSessionMock = vi
       .spyOn(container.artifactService, "deleteArtifactsForSession")
       .mockRejectedValueOnce(new Error("artifact cleanup failed"));
-    const loggerWarnMock = vi.spyOn(logger, "warn").mockImplementation(() => {});
+    const loggerWarnMock = vi
+      .spyOn(logger, "warn")
+      .mockImplementation(() => {});
 
-    const response = await app.request("/api/v1/sessions/warn-me.jsonl", {
-      method: "DELETE",
-    });
+    const response = await app.request(
+      "/api/v1/sessions/warn-me.jsonl?botId=bot-warning",
+      {
+        method: "DELETE",
+      },
+    );
 
     expect(response.status).toBe(200);
     await expect(stat(transcriptPath)).rejects.toThrow();
@@ -308,6 +318,161 @@ describe("session routes", () => {
       }),
       "session_delete_artifact_cleanup_failed",
     );
+  });
+
+  it("retains artifact index entries when file cleanup cannot be completed", async () => {
+    rootDir = await mkdtemp(path.join(tmpdir(), "nexu-session-delete-retain-"));
+    const container = createTestContainer(rootDir);
+    const app = createApp(container);
+
+    const createSession = await app.request("/api/internal/sessions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        botId: "bot-retain",
+        sessionKey: "retain-me",
+        title: "Retain me",
+        channelType: "slack",
+      }),
+    });
+    expect(createSession.status).toBe(201);
+
+    const transcriptPath = path.join(
+      rootDir,
+      ".openclaw",
+      "agents",
+      "bot-retain",
+      "sessions",
+      "retain-me.jsonl",
+    );
+    const metadataPath = transcriptPath.replace(/\.jsonl$/, ".meta.json");
+    const unsafeDirectoryPath = path.join(
+      rootDir,
+      ".nexu",
+      "artifacts",
+      "retain-me-dir",
+    );
+
+    await mkdir(path.dirname(transcriptPath), { recursive: true });
+    await mkdir(unsafeDirectoryPath, { recursive: true });
+    await writeFile(transcriptPath, "", "utf8");
+    await writeFile(
+      metadataPath,
+      JSON.stringify({ sessionKey: "retain-me" }),
+      "utf8",
+    );
+
+    await container.artifactService.createArtifact({
+      botId: "bot-retain",
+      sessionKey: "retain-me",
+      title: "Directory artifact",
+      metadata: {
+        filePath: unsafeDirectoryPath,
+      },
+    });
+
+    const loggerWarnMock = vi
+      .spyOn(logger, "warn")
+      .mockImplementation(() => {});
+
+    const response = await app.request(
+      "/api/v1/sessions/retain-me.jsonl?botId=bot-retain",
+      {
+        method: "DELETE",
+      },
+    );
+    expect(response.status).toBe(200);
+
+    await expect(stat(transcriptPath)).rejects.toThrow();
+    await expect(stat(metadataPath)).rejects.toThrow();
+    await expect(stat(unsafeDirectoryPath)).resolves.toBeTruthy();
+
+    const artifacts = await container.artifactService.listArtifacts({
+      limit: 10,
+      offset: 0,
+      sessionKey: "retain-me",
+    });
+    expect(artifacts.artifacts).toHaveLength(1);
+    expect(loggerWarnMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        botId: "bot-retain",
+        sessionKey: "retain-me",
+        filePath: unsafeDirectoryPath,
+      }),
+      "session_delete_artifact_cleanup_skipped_directory_path",
+    );
+    expect(loggerWarnMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        botId: "bot-retain",
+        sessionKey: "retain-me",
+        retainedArtifacts: 1,
+      }),
+      "session_delete_artifact_index_retained_for_retry",
+    );
+  });
+
+  it("deletes only the bot-scoped session when sessionKey is reused", async () => {
+    rootDir = await mkdtemp(path.join(tmpdir(), "nexu-session-delete-scoped-"));
+    const container = createTestContainer(rootDir);
+    const app = createApp(container);
+
+    await app.request("/api/internal/sessions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        botId: "bot-a",
+        sessionKey: "shared",
+        title: "Shared A",
+        channelType: "slack",
+      }),
+    });
+    await app.request("/api/internal/sessions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        botId: "bot-b",
+        sessionKey: "shared",
+        title: "Shared B",
+        channelType: "slack",
+      }),
+    });
+
+    const botAPath = path.join(
+      rootDir,
+      ".openclaw",
+      "agents",
+      "bot-a",
+      "sessions",
+      "shared.jsonl",
+    );
+    const botBPath = path.join(
+      rootDir,
+      ".openclaw",
+      "agents",
+      "bot-b",
+      "sessions",
+      "shared.jsonl",
+    );
+    await mkdir(path.dirname(botAPath), { recursive: true });
+    await mkdir(path.dirname(botBPath), { recursive: true });
+    await writeFile(botAPath, "bot-a", "utf8");
+    await writeFile(botBPath, "bot-b", "utf8");
+
+    const missingBotId = await app.request("/api/v1/sessions/shared.jsonl", {
+      method: "DELETE",
+    });
+    expect(missingBotId.status).toBe(400);
+
+    const response = await app.request(
+      "/api/v1/sessions/shared.jsonl?botId=bot-b",
+      {
+        method: "DELETE",
+      },
+    );
+
+    expect(response.status).toBe(200);
+    await expect(readFile(botAPath, "utf8")).resolves.toBe("bot-a");
+    await expect(stat(botBPath)).rejects.toThrow();
   });
 
   it("serves cleaned chat history through the session messages API", async () => {
