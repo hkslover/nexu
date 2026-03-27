@@ -761,6 +761,12 @@ function createMainWindow(): BrowserWindow {
   window.webContents.on(
     "did-fail-load",
     (_event, errorCode, errorDescription, validatedUrl) => {
+      diagnosticsReporter?.recordStartupProbe({
+        source: "main",
+        stage: "main:renderer-did-fail-load",
+        status: "error",
+        detail: `${errorCode} ${errorDescription} ${validatedUrl}`,
+      });
       diagnosticsReporter?.recordRendererDidFailLoad({
         errorCode,
         errorDescription,
@@ -777,6 +783,12 @@ function createMainWindow(): BrowserWindow {
   );
 
   window.webContents.on("did-finish-load", () => {
+    diagnosticsReporter?.recordStartupProbe({
+      source: "main",
+      stage: "main:renderer-did-finish-load",
+      status: "ok",
+      detail: window.webContents.getURL(),
+    });
     diagnosticsReporter?.recordRendererDidFinishLoad(
       window.webContents.getURL(),
     );
@@ -790,6 +802,12 @@ function createMainWindow(): BrowserWindow {
   });
 
   window.webContents.on("render-process-gone", (_event, details) => {
+    diagnosticsReporter?.recordStartupProbe({
+      source: "main",
+      stage: "main:renderer-process-gone",
+      status: "error",
+      detail: `reason=${details.reason} exitCode=${details.exitCode}`,
+    });
     diagnosticsReporter?.recordRendererProcessGone({
       reason: details.reason,
       exitCode: details.exitCode,
@@ -804,6 +822,12 @@ function createMainWindow(): BrowserWindow {
   });
 
   window.once("ready-to-show", () => {
+    diagnosticsReporter?.recordStartupProbe({
+      source: "main",
+      stage: "main:window-ready-to-show",
+      status: "ok",
+      detail: window.webContents.getURL(),
+    });
     logLaunchTimeline("main window ready-to-show");
     if (isMacOS) {
       window.setBackgroundColor("#00000000");
@@ -820,6 +844,12 @@ function createMainWindow(): BrowserWindow {
   });
 
   void window.loadFile(resolve(__dirname, "../../dist/index.html"));
+  diagnosticsReporter?.recordStartupProbe({
+    source: "main",
+    stage: "main:window-load-dispatched",
+    status: "ok",
+    detail: resolve(__dirname, "../../dist/index.html"),
+  });
   logLaunchTimeline("main window loadFile dispatched");
   mainWindow = window;
   return window;
@@ -928,8 +958,19 @@ logLaunchTimeline("electron main module evaluated");
 app.whenReady().then(async () => {
   logLaunchTimeline("app.whenReady resolved");
   installApplicationMenu();
-  registerIpcHandlers(orchestrator, runtimeConfig, coldStartReady);
   diagnosticsReporter = new DesktopDiagnosticsReporter(orchestrator);
+  diagnosticsReporter.recordStartupProbe({
+    source: "main",
+    stage: "main:app-when-ready",
+    status: "ok",
+    detail: app.getVersion(),
+  });
+  registerIpcHandlers(
+    orchestrator,
+    runtimeConfig,
+    diagnosticsReporter,
+    coldStartReady,
+  );
   const unsubscribeDiagnostics = diagnosticsReporter.start();
   sleepGuard = new SleepGuard({
     powerMonitor,
